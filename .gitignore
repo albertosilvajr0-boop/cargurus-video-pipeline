@@ -1,0 +1,43 @@
+# Environment
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Output files (large, generated)
+output/photos/
+output/stickers/
+output/videos/
+output/scripts/
+
+# Database
+pipeline.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+_concat_list.txt
+_temp_concat.mp4
+
+# Keep output directory structure
+!output/.gitkeep
+!output/photos/.gitkeep
+!output/stickers/.gitkeep
+!output/videos/.gitkeep
+!output/scripts/.gitkeep
