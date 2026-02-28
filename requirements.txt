@@ -5,10 +5,9 @@ lxml==5.3.0
 
 # HTTP requests
 httpx==0.28.1
-aiohttp==3.11.11
 
 # AI APIs
-google-generativeai==0.8.4
+google-genai==1.5.0
 openai==1.59.5
 
 # Video processing
@@ -20,5 +19,6 @@ python-dotenv==1.0.1
 rich==13.9.4
 click==8.1.7
 
-# Async support
-asyncio-throttle==1.0.2
+# Web interface
+flask==3.1.0
+gunicorn==23.0.0

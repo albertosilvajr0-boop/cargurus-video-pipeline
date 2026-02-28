@@ -39,7 +39,11 @@ def init_db():
             status TEXT DEFAULT 'scraped',  -- scraped, photos_downloaded, sticker_downloaded, script_generated, video_generating, video_complete, error
             error_message TEXT,
             
-            -- Asset paths (stored as JSON arrays)
+            -- Scraped asset URLs (from scraper)
+            photo_urls TEXT DEFAULT '[]',
+            sticker_url TEXT,
+
+            -- Downloaded asset paths (from downloader)
             photo_paths TEXT DEFAULT '[]',
             sticker_path TEXT,
             
@@ -197,7 +201,3 @@ def get_total_spend() -> float:
     total = cursor.fetchone()["total"]
     conn.close()
     return total
-
-
-# Initialize on import
-init_db()
