@@ -8,6 +8,7 @@ import csv
 import io
 import json
 import os
+import re
 import subprocess
 import threading
 from datetime import datetime
@@ -129,6 +130,27 @@ def api_upload_csv():
 
         imported = 0
         skipped = 0
+        photo_total = 0
+
+        def parse_num(val):
+            if not val:
+                return 0
+            cleaned = val.replace("$", "").replace(",", "").replace('"', "").strip()
+            try:
+                return int(float(cleaned)) if cleaned else 0
+            except ValueError:
+                return 0
+
+        def clean_trim(raw_trim):
+            """Strip mileage, location, and deal rating that bleeds into trim."""
+            t = (raw_trim or "").strip().strip('"')
+            # Remove patterns like "7,726 miSan Antonio, TXGood Deal"
+            t = re.sub(r"[\d,]+\s*mi[A-Z].*$", "", t)
+            # Remove standalone deal ratings
+            t = re.sub(r"(Great|Good|Fair|High|No)\s+Deal.*$", "", t, flags=re.I)
+            # Remove city/state patterns
+            t = re.sub(r"[A-Z][a-z]+,\s*[A-Z]{2}.*$", "", t)
+            return t.strip()
 
         for row in reader:
             vin = (row.get("VIN") or "").strip()
@@ -136,15 +158,10 @@ def api_upload_csv():
                 skipped += 1
                 continue
 
-            # Parse price values — strip $, commas, quotes
-            def parse_num(val):
-                if not val:
-                    return 0
-                cleaned = val.replace("$", "").replace(",", "").replace('"', "").strip()
-                try:
-                    return int(float(cleaned)) if cleaned else 0
-                except ValueError:
-                    return 0
+            # Parse photo URLs (pipe-separated from bookmarklet)
+            photos_raw = (row.get("Photos") or "").strip().strip('"')
+            photo_urls = [u.strip() for u in photos_raw.split("|") if u.strip()] if photos_raw else []
+            photo_total += len(photo_urls)
 
             vehicle_data = {
                 "cargurus_id": f"csv_{vin}",
@@ -152,12 +169,13 @@ def api_upload_csv():
                 "year": parse_num(row.get("Year")),
                 "make": (row.get("Make") or "").strip().strip('"'),
                 "model": (row.get("Model") or "").strip().strip('"'),
-                "trim": (row.get("Trim") or "").strip().strip('"'),
+                "trim": clean_trim(row.get("Trim")),
                 "price": parse_num(row.get("Sale Price")),
                 "mileage": parse_num(row.get("Mileage")),
                 "exterior_color": (row.get("Color") or "").strip().strip('"'),
                 "drivetrain": (row.get("Drivetrain") or "").strip().strip('"'),
                 "listing_url": (row.get("URL") or "").strip().strip('"'),
+                "photo_urls": json.dumps(photo_urls),
                 "status": "scraped",
             }
 
@@ -168,10 +186,22 @@ def api_upload_csv():
             "status": "success",
             "imported": imported,
             "skipped": skipped,
+            "photos": photo_total,
         })
 
     except Exception as e:
         return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 400
+
+
+@app.route("/api/reset", methods=["POST"])
+def api_reset_vehicles():
+    """Delete all vehicles so the user can re-import a fresh CSV."""
+    from utils.database import get_connection
+    conn = get_connection()
+    conn.execute("DELETE FROM vehicles")
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/status")

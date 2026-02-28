@@ -227,6 +227,7 @@
                 Upload CSV
                 <input type="file" accept=".csv" id="csvUpload" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="uploadCSV(this)">
             </label>
+            <button class="btn" onclick="resetVehicles()" style="border-color:var(--red);color:var(--red)">Reset All</button>
             <button class="btn" onclick="refreshData()">Refresh</button>
         </div>
 
@@ -393,7 +394,10 @@
                 const res = await fetch('/api/upload-csv', { method: 'POST', body: formData });
                 const data = await res.json();
                 if (res.ok) {
-                    alert(`Imported ${data.imported} vehicles` + (data.skipped ? ` (${data.skipped} skipped)` : ''));
+                    let msg = `Imported ${data.imported} vehicles`;
+                    if (data.skipped) msg += ` (${data.skipped} skipped)`;
+                    if (data.photos) msg += `\n${data.photos} photo URLs captured`;
+                    alert(msg);
                     window.location.reload();
                 } else {
                     alert('Error: ' + data.error);
@@ -402,6 +406,19 @@
                 alert('Upload failed: ' + e.message);
             }
             input.value = '';
+        }
+
+        async function resetVehicles() {
+            if (!confirm('Delete ALL vehicles and start fresh? This cannot be undone.')) return;
+            try {
+                const res = await fetch('/api/reset', { method: 'POST' });
+                if (res.ok) {
+                    alert('All vehicles cleared.');
+                    window.location.reload();
+                }
+            } catch (e) {
+                alert('Reset failed: ' + e.message);
+            }
         }
     </script>
 </body>
