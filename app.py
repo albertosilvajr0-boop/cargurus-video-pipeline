@@ -4,6 +4,8 @@ Provides a web interface to view pipeline status, browse vehicles,
 and trigger pipeline runs.
 """
 
+import csv
+import io
 import json
 import os
 import subprocess
@@ -107,6 +109,69 @@ def api_run_pipeline():
     thread.start()
 
     return jsonify({"status": "started", "step": step})
+
+
+@app.route("/api/upload-csv", methods=["POST"])
+def api_upload_csv():
+    """Import vehicles from a bookmarklet-generated CSV file."""
+    from utils.database import upsert_vehicle
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    if not file.filename.endswith(".csv"):
+        return jsonify({"error": "File must be a CSV"}), 400
+
+    try:
+        content = file.read().decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(content))
+
+        imported = 0
+        skipped = 0
+
+        for row in reader:
+            vin = (row.get("VIN") or "").strip()
+            if not vin or len(vin) != 17:
+                skipped += 1
+                continue
+
+            # Parse price values — strip $, commas, quotes
+            def parse_num(val):
+                if not val:
+                    return 0
+                cleaned = val.replace("$", "").replace(",", "").replace('"', "").strip()
+                try:
+                    return int(float(cleaned)) if cleaned else 0
+                except ValueError:
+                    return 0
+
+            vehicle_data = {
+                "cargurus_id": f"csv_{vin}",
+                "vin": vin,
+                "year": parse_num(row.get("Year")),
+                "make": (row.get("Make") or "").strip().strip('"'),
+                "model": (row.get("Model") or "").strip().strip('"'),
+                "trim": (row.get("Trim") or "").strip().strip('"'),
+                "price": parse_num(row.get("Sale Price")),
+                "mileage": parse_num(row.get("Mileage")),
+                "exterior_color": (row.get("Color") or "").strip().strip('"'),
+                "drivetrain": (row.get("Drivetrain") or "").strip().strip('"'),
+                "listing_url": (row.get("URL") or "").strip().strip('"'),
+                "status": "scraped",
+            }
+
+            upsert_vehicle(vehicle_data)
+            imported += 1
+
+        return jsonify({
+            "status": "success",
+            "imported": imported,
+            "skipped": skipped,
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 400
 
 
 @app.route("/api/status")

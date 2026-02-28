@@ -223,6 +223,10 @@
             <button class="btn" onclick="runPipeline('download')">Download Assets</button>
             <button class="btn" onclick="runPipeline('scripts')">Generate Scripts</button>
             <button class="btn" onclick="runPipeline('videos')">Generate Videos</button>
+            <label class="btn" style="position:relative;cursor:pointer">
+                Upload CSV
+                <input type="file" accept=".csv" id="csvUpload" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="uploadCSV(this)">
+            </label>
             <button class="btn" onclick="refreshData()">Refresh</button>
         </div>
 
@@ -377,6 +381,28 @@
         document.getElementById('detailModal').addEventListener('click', function(e) {
             if (e.target === this) closeModal();
         });
+
+        async function uploadCSV(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/upload-csv', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`Imported ${data.imported} vehicles` + (data.skipped ? ` (${data.skipped} skipped)` : ''));
+                    window.location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Upload failed: ' + e.message);
+            }
+            input.value = '';
+        }
     </script>
 </body>
 </html>
