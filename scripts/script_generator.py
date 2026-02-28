@@ -5,9 +5,11 @@ based on vehicle details, photos, and window sticker highlights.
 """
 
 import json
+import re
 from datetime import datetime
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from rich.console import Console
 
 from config import settings
@@ -16,10 +18,7 @@ from utils.cost_tracker import CostTracker
 
 console = Console()
 
-# Configure Gemini
-genai.configure(api_key=settings.GOOGLE_API_KEY)
-
-SCRIPT_PROMPT_TEMPLATE = """You are an expert automotive video scriptwriter creating short-form cinematic content 
+SCRIPT_PROMPT_TEMPLATE = """You are an expert automotive video scriptwriter creating short-form cinematic content
 for a car dealership's social media. Create a compelling 15-second video script for the following vehicle.
 
 ## Vehicle Details
@@ -86,26 +85,27 @@ Respond ONLY with the JSON object, no markdown formatting or code blocks.
 
 
 class ScriptGenerator:
-    """Generates video scripts using Google Gemini."""
-    
+    """Generates video scripts using Google Gemini via the google-genai SDK."""
+
     def __init__(self):
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        self.model_name = "gemini-2.0-flash"
         self.cost_tracker = CostTracker()
-    
+
     async def generate_all_scripts(self):
         """Generate scripts for all vehicles that need them."""
         # Get vehicles that have photos downloaded but no script yet
         vehicles = (
-            get_vehicles_by_status("photos_downloaded") + 
+            get_vehicles_by_status("photos_downloaded") +
             get_vehicles_by_status("sticker_downloaded")
         )
-        
+
         if not vehicles:
             console.print("[yellow]No vehicles pending script generation[/yellow]")
             return
-        
+
         console.print(f"[cyan]Generating scripts for {len(vehicles)} vehicles...[/cyan]")
-        
+
         for vehicle in vehicles:
             try:
                 script = await self.generate_script(vehicle)
@@ -113,23 +113,23 @@ class ScriptGenerator:
                     # Save script to file
                     script_path = settings.SCRIPTS_DIR / f"{vehicle['cargurus_id']}_script.json"
                     script_path.write_text(json.dumps(script, indent=2))
-                    
+
                     update_vehicle_status(
                         vehicle["id"],
                         "script_generated",
                         video_script=json.dumps(script),
                         script_generated_at=datetime.now().isoformat(),
                     )
-                    
+
                     console.print(
                         f"[green]  ✓ {vehicle.get('year', '')} {vehicle.get('make', '')} "
                         f"{vehicle.get('model', '')} — {script.get('target_emotion', 'cinematic')}[/green]"
                     )
-                    
+
             except Exception as e:
                 console.print(f"[red]  ✗ Error generating script for {vehicle['id']}: {e}[/red]")
                 update_vehicle_status(vehicle["id"], "error", error_message=f"Script generation: {e}")
-    
+
     async def generate_script(self, vehicle: dict) -> dict | None:
         """Generate a video script for a single vehicle."""
         prompt = SCRIPT_PROMPT_TEMPLATE.format(
@@ -146,36 +146,36 @@ class ScriptGenerator:
             drivetrain=vehicle.get("drivetrain", "Unknown"),
             dealer_name=settings.DEALER_NAME,
         )
-        
-        response = self.model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=0.9,
                 max_output_tokens=2000,
             ),
         )
-        
+
         # Parse JSON response
         text = response.text.strip()
-        # Clean up common issues
+        # Clean up common issues - strip markdown code fences
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
         if text.endswith("```"):
             text = text.rsplit("```", 1)[0]
         text = text.strip()
-        
+
         try:
             script = json.loads(text)
         except json.JSONDecodeError:
             # Try to extract JSON from the response
-            import re
             json_match = re.search(r"\{.*\}", text, re.DOTALL)
             if json_match:
                 script = json.loads(json_match.group())
             else:
                 console.print(f"[red]Failed to parse script JSON[/red]")
                 return None
-        
+
         # Track cost (Gemini Flash is very cheap, ~$0.001 per script)
         self.cost_tracker.record_cost(
             vehicle_id=vehicle["id"],
@@ -185,7 +185,7 @@ class ScriptGenerator:
             cost=0.001,
             call_type="script_generation",
         )
-        
+
         return script
 
 

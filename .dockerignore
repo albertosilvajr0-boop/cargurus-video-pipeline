@@ -1,0 +1,12 @@
+.git
+__pycache__
+*.pyc
+venv/
+.venv/
+.env
+pipeline.db
+output/photos/*
+output/stickers/*
+output/videos/*
+output/scripts/*
+!output/.gitkeep
