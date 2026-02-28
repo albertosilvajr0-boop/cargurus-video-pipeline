@@ -12,7 +12,7 @@ openai==1.59.5
 
 # Video processing
 moviepy==2.1.1
-Pillow==11.1.0
+Pillow==10.4.0
 
 # Data & storage
 python-dotenv==1.0.1
