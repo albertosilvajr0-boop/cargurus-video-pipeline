@@ -6,7 +6,7 @@
       {
         "source": "**",
         "run": {
-          "serviceId": "cargurus-video-pipeline",
+          "serviceId": "ai-autovideo",
           "region": "us-central1"
         }
       }
