@@ -10,6 +10,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from config import settings
 from utils.database import get_vehicles_by_status, update_vehicle_status
+from utils.retry import retry_async
 
 console = Console()
 
@@ -60,6 +61,14 @@ class AssetDownloader:
                     progress.update(task, advance=1)
                     await asyncio.sleep(0.5)  # Rate limiting
     
+    @retry_async(max_retries=2, base_delay=1.0, operation_name="asset download")
+    async def _download_file(self, client: httpx.AsyncClient, url: str, path: Path) -> bool:
+        """Download a single file with retry."""
+        response = await client.get(url)
+        response.raise_for_status()
+        path.write_bytes(response.content)
+        return True
+
     async def _download_vehicle_assets(self, client: httpx.AsyncClient, vehicle: dict):
         """Download photos and window sticker for a single vehicle."""
         vehicle_id = vehicle["id"]
@@ -77,9 +86,7 @@ class AssetDownloader:
             try:
                 photo_path = photo_dir / f"photo_{i:02d}.jpg"
                 if not photo_path.exists():
-                    response = await client.get(url)
-                    response.raise_for_status()
-                    photo_path.write_bytes(response.content)
+                    await self._download_file(client, url, photo_path)
                 downloaded_photos.append(str(photo_path))
             except Exception as e:
                 console.print(f"[dim red]Failed to download photo {i} for {cg_id}: {e}[/dim red]")
@@ -95,9 +102,7 @@ class AssetDownloader:
                     sticker_file = sticker_file.with_suffix(Path(sticker_url).suffix)
                 
                 if not sticker_file.exists():
-                    response = await client.get(sticker_url)
-                    response.raise_for_status()
-                    sticker_file.write_bytes(response.content)
+                    await self._download_file(client, sticker_url, sticker_file)
                 
                 sticker_path = str(sticker_file)
             except Exception as e:

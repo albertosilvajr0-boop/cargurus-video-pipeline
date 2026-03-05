@@ -15,6 +15,7 @@ from rich.console import Console
 from config import settings
 from utils.database import get_vehicles_by_status, update_vehicle_status
 from utils.cost_tracker import CostTracker
+from utils.retry import retry_sync
 
 console = Console()
 
@@ -130,6 +131,18 @@ class ScriptGenerator:
                 console.print(f"[red]  ✗ Error generating script for {vehicle['id']}: {e}[/red]")
                 update_vehicle_status(vehicle["id"], "error", error_message=f"Script generation: {e}")
 
+    @retry_sync(max_retries=3, base_delay=2.0, operation_name="Gemini script generation")
+    def _call_gemini(self, prompt: str):
+        """Call Gemini API with retry logic."""
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.9,
+                max_output_tokens=2000,
+            ),
+        )
+
     async def generate_script(self, vehicle: dict) -> dict | None:
         """Generate a video script for a single vehicle."""
         prompt = SCRIPT_PROMPT_TEMPLATE.format(
@@ -147,14 +160,7 @@ class ScriptGenerator:
             dealer_name=settings.DEALER_NAME,
         )
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.9,
-                max_output_tokens=2000,
-            ),
-        )
+        response = self._call_gemini(prompt)
 
         # Parse JSON response
         text = response.text.strip()

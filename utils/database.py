@@ -201,3 +201,42 @@ def get_total_spend() -> float:
     total = cursor.fetchone()["total"]
     conn.close()
     return total
+
+
+def retry_failed_vehicles(target_status: str = "scraped") -> int:
+    """Reset all vehicles with 'error' status back to a retryable state.
+
+    Args:
+        target_status: The status to reset vehicles to (default: 'scraped')
+
+    Returns:
+        Number of vehicles reset.
+    """
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE vehicles SET status = ?, error_message = NULL, updated_at = ? "
+        "WHERE status = 'error'",
+        (target_status, datetime.now().isoformat()),
+    )
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
+def retry_vehicle_by_id(vehicle_id: int, target_status: str = "scraped") -> bool:
+    """Reset a single vehicle from error status back to a retryable state.
+
+    Returns:
+        True if the vehicle was reset, False if not found or not in error state.
+    """
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE vehicles SET status = ?, error_message = NULL, updated_at = ? "
+        "WHERE id = ? AND status = 'error'",
+        (target_status, datetime.now().isoformat(), vehicle_id),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated

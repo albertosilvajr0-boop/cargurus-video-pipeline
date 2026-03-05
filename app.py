@@ -17,7 +17,7 @@ from flask import Flask, render_template, jsonify, request, send_from_directory
 from config import settings
 from utils.database import (
     init_db, get_all_vehicles, get_vehicles_by_status,
-    get_pipeline_stats,
+    get_pipeline_stats, retry_failed_vehicles, retry_vehicle_by_id,
 )
 from utils.cost_tracker import CostTracker
 
@@ -172,6 +172,28 @@ def api_upload_csv():
 
     except Exception as e:
         return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 400
+
+
+@app.route("/api/retry-all", methods=["POST"])
+def api_retry_all():
+    """Reset all failed vehicles back to retryable state."""
+    target = "scraped"
+    if request.is_json and request.json.get("target_status"):
+        target = request.json["target_status"]
+    count = retry_failed_vehicles(target_status=target)
+    return jsonify({"status": "ok", "reset_count": count, "target_status": target})
+
+
+@app.route("/api/retry/<int:vehicle_id>", methods=["POST"])
+def api_retry_vehicle(vehicle_id):
+    """Reset a single failed vehicle back to retryable state."""
+    target = "scraped"
+    if request.is_json and request.json.get("target_status"):
+        target = request.json["target_status"]
+    success = retry_vehicle_by_id(vehicle_id, target_status=target)
+    if success:
+        return jsonify({"status": "ok", "vehicle_id": vehicle_id, "target_status": target})
+    return jsonify({"error": "Vehicle not found or not in error state"}), 404
 
 
 @app.route("/api/status")

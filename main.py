@@ -28,7 +28,7 @@ from rich.panel import Panel
 from config import settings
 from utils.database import (
     init_db, get_all_vehicles, get_vehicles_by_status,
-    get_pipeline_stats, update_vehicle_status,
+    get_pipeline_stats, update_vehicle_status, retry_failed_vehicles,
 )
 from utils.cost_tracker import CostTracker
 from scraper.cargurus_scraper import run_scraper
@@ -156,10 +156,12 @@ async def run_video_generation():
 @click.option("--max", "max_vehicles", type=int, default=0, help="Max vehicles to process (0 = all)")
 @click.option("--quality", type=click.Choice(["fast", "standard", "pro"]),
               default=None, help="Video quality override")
-def main(step: str, max_vehicles: int, quality: str):
+@click.option("--retry", "retry_errors", is_flag=True, default=False,
+              help="Reset failed vehicles to 'scraped' and re-process them")
+def main(step: str, max_vehicles: int, quality: str, retry_errors: bool):
     """Run the CarGurus Vehicle Video Pipeline."""
     print_banner()
-    
+
     # Override settings if provided
     if max_vehicles > 0:
         settings.MAX_VEHICLES = max_vehicles
@@ -177,11 +179,19 @@ def main(step: str, max_vehicles: int, quality: str):
     
     # Initialize database
     init_db()
-    
+
     if step == "status":
         print_status()
         return
-    
+
+    # Retry failed vehicles if requested
+    if retry_errors:
+        count = retry_failed_vehicles()
+        if count:
+            console.print(f"[green]✓ Reset {count} failed vehicle(s) for retry[/green]")
+        else:
+            console.print("[yellow]No failed vehicles to retry[/yellow]")
+
     async def run_pipeline():
         if step in ("scrape", "all"):
             console.print("\n[bold]═══ Step 1: Scraping CarGurus Inventory ═══[/bold]")
