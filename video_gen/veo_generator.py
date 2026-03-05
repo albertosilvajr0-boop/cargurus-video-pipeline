@@ -16,6 +16,7 @@ from rich.console import Console
 from config import settings
 from utils.database import update_vehicle_status
 from utils.cost_tracker import CostTracker
+from utils.retry import retry_async
 
 console = Console()
 
@@ -109,6 +110,7 @@ class VeoGenerator:
             update_vehicle_status(vehicle_id, "error", error_message=f"Veo: {e}")
             return None
 
+    @retry_async(max_retries=3, base_delay=5.0, max_delay=60.0, operation_name="Veo clip generation")
     async def _generate_clip(self, prompt: str, output_name: str,
                               reference_image: str | None = None) -> str | None:
         """Generate a single video clip using the Veo API."""
