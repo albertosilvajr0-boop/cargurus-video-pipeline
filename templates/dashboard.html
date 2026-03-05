@@ -34,6 +34,10 @@
         }
         header h1 { font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }
         header .subtitle { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
+        .conn-status { font-size: 0.75rem; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+        .conn-status.online { background: #1a3a2a; color: #4ade80; }
+        .conn-status.offline { background: #3b1a1a; color: #f87171; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
         /* Stats Grid */
         .stats-grid {
@@ -267,7 +271,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>CarGurus Video Pipeline</h1>
+            <h1>CarGurus Video Pipeline <span class="conn-status offline" id="connStatus">Connecting...</span></h1>
             <div class="subtitle">{{ dealer_name }} &mdash; Automated AI Video Generation</div>
         </div>
     </header>
@@ -469,6 +473,8 @@
         }
 
         // --- Pipeline status ---
+        let _backendReachable = true;
+        let _lastStatusError = 0;
         checkPipelineStatus();
         setInterval(checkPipelineStatus, 5000);
 
@@ -476,6 +482,13 @@
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
+                const connEl = document.getElementById('connStatus');
+                connEl.textContent = 'Connected';
+                connEl.className = 'conn-status online';
+                if (!_backendReachable) {
+                    _backendReachable = true;
+                    addLog('Backend connection restored', 'success');
+                }
                 const banner = document.getElementById('pipelineBanner');
                 const wasRunning = banner.classList.contains('active');
                 banner.classList.toggle('active', data.running);
@@ -495,12 +508,21 @@
                     });
                 }
             } catch (e) {
-                addLog('Failed to check pipeline status: ' + e.message, 'error');
+                // Only log backend-unreachable once, not every 5 seconds
+                const now = Date.now();
+                const connEl = document.getElementById('connStatus');
+                connEl.textContent = 'Disconnected';
+                connEl.className = 'conn-status offline';
+                if (_backendReachable || now - _lastStatusError > 30000) {
+                    _backendReachable = false;
+                    _lastStatusError = now;
+                    addLog('Backend unreachable — make sure the Flask server is running (python app.py)', 'error');
+                }
             }
         }
 
         async function runPipeline(step) {
-            if (!confirm(`Run pipeline step: ${step}?`)) return;
+            console.log('[Pipeline] Button clicked:', step);
             const actionId = 'action-' + step;
             setProgress(actionId, 'loading');
             addLog(`Starting pipeline: ${step}...`, 'info');
@@ -521,7 +543,7 @@
                 }
             } catch (e) {
                 setProgress(actionId, 'error');
-                addLog(`Failed to start ${step}: ${e.message}`, 'error');
+                addLog(`Network error — is the backend running? ${e.message}`, 'error');
             }
         }
 
