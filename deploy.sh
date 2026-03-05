@@ -13,11 +13,11 @@
 
 set -e
 
-PROJECT_ID="instaautovideo"
+PROJECT_ID="autovideo"
 REGION="us-central1"
-SERVICE_NAME="instaautovideo"
+SERVICE_NAME="autovideo"
 
-echo "=== InstaAutoVideo Deployment ==="
+echo "=== AutoVideo Deployment ==="
 echo "Project: $PROJECT_ID"
 echo "Region:  $REGION"
 echo ""
