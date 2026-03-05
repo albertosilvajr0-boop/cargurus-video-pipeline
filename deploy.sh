@@ -13,11 +13,11 @@
 
 set -e
 
-PROJECT_ID="cargurus-pipeline"
+PROJECT_ID="instaautovideo"
 REGION="us-central1"
-SERVICE_NAME="cargurus-video-pipeline"
+SERVICE_NAME="instaautovideo"
 
-echo "=== CarGurus Video Pipeline Deployment ==="
+echo "=== InstaAutoVideo Deployment ==="
 echo "Project: $PROJECT_ID"
 echo "Region:  $REGION"
 echo ""
