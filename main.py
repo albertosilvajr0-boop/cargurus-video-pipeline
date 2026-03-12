@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 """
-CarGurus Vehicle Video Pipeline
-================================
-Automated pipeline that scrapes San Antonio Dodge's CarGurus inventory,
-generates AI video scripts, and produces cinematic videos using Veo and Sora.
+CarGurus Vehicle Video Pipeline — Upload-First Workflow
+========================================================
+Users upload photos + window sticker + Carfax. The pipeline:
+  1. Gemini multimodal extracts vehicle details + generates video script
+  2. Veo/Sora generates a single cinematic 8-second clip
+  3. FFmpeg composites intro + clip + CTA outro with branding overlays
 
 Usage:
-    python main.py                    # Run full pipeline
-    python main.py --step scrape      # Scrape inventory only
-    python main.py --step download    # Download photos/stickers
-    python main.py --step scripts     # Generate video scripts
-    python main.py --step videos      # Generate videos
-    python main.py --step status      # Show pipeline status
-    python main.py --max 5            # Limit to 5 vehicles
-    python main.py --quality standard # Set video quality
+    python main.py upload <photo1> <photo2> ... [--sticker FILE] [--carfax FILE]
+    python main.py status
+    python main.py serve                     # Start web dashboard
 """
 
 import asyncio
 import json
+import sys
 from datetime import datetime
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -27,24 +26,21 @@ from rich.panel import Panel
 
 from config import settings
 from utils.database import (
-    init_db, get_all_vehicles, get_vehicles_by_status,
-    get_pipeline_stats, update_vehicle_status, retry_failed_vehicles,
+    init_db, get_all_vehicles, get_pipeline_stats,
+    upsert_vehicle, update_vehicle_status,
 )
 from utils.cost_tracker import CostTracker
-from scraper.cargurus_scraper import run_scraper
-from scraper.asset_downloader import run_downloader
-from scripts.script_generator import run_script_generator
+from scripts.multimodal_extractor import MultimodalExtractor
 from video_gen.veo_generator import VeoGenerator
 from video_gen.sora_generator import SoraGenerator
-from video_gen.video_stitcher import VideoStitcher
+from video_gen.overlay import VideoOverlayPipeline
 
 console = Console()
 
 
 def print_banner():
-    """Print the pipeline banner."""
     console.print(Panel.fit(
-        "[bold cyan]🎬 CarGurus Vehicle Video Pipeline[/bold cyan]\n"
+        "[bold cyan]CarGurus Vehicle Video Pipeline[/bold cyan]\n"
         f"[dim]Dealer: {settings.DEALER_NAME}[/dim]\n"
         f"[dim]Engine: {settings.PRIMARY_VIDEO_ENGINE.upper()} ({settings.VIDEO_QUALITY}) "
         f"| Budget: ${settings.COST_LIMIT:.2f}[/dim]",
@@ -53,167 +49,217 @@ def print_banner():
 
 
 def print_status():
-    """Print current pipeline status."""
     stats = get_pipeline_stats()
-    
-    table = Table(title="📊 Pipeline Status")
+    table = Table(title="Pipeline Status")
     table.add_column("Status", style="cyan")
     table.add_column("Count", style="white", justify="right")
-    
+
     status_order = [
-        ("scraped", "🔍 Scraped"),
-        ("photos_downloaded", "📸 Photos Downloaded"),
-        ("sticker_downloaded", "🏷️ Sticker Downloaded"),
-        ("script_generated", "📝 Script Generated"),
-        ("video_generating", "🎬 Video Generating"),
-        ("video_complete", "✅ Video Complete"),
-        ("error", "❌ Error"),
+        ("script_generated", "Script Generated"),
+        ("video_generating", "Video Generating"),
+        ("video_complete", "Video Complete"),
+        ("error", "Error"),
     ]
-    
+
     for status_key, label in status_order:
         count = stats["by_status"].get(status_key, 0)
         if count > 0:
             table.add_row(label, str(count))
-    
+
     table.add_section()
     table.add_row("[bold]Total Vehicles[/bold]", f"[bold]{stats['total_vehicles']}[/bold]")
     table.add_row("[bold]Videos Completed[/bold]", f"[bold]{stats['videos_completed']}[/bold]")
     table.add_row("[bold]Total Cost[/bold]", f"[bold green]${stats['total_cost']:.2f}[/bold green]")
-    
+
     console.print(table)
 
 
-async def run_video_generation():
-    """Generate videos for all vehicles with scripts."""
-    vehicles = get_vehicles_by_status("script_generated")
-    
-    if not vehicles:
-        console.print("[yellow]No vehicles pending video generation[/yellow]")
-        return
-    
-    console.print(f"[cyan]Generating videos for {len(vehicles)} vehicles...[/cyan]")
-    
-    cost_tracker = CostTracker()
-    veo = VeoGenerator()
-    sora = SoraGenerator()
-    stitcher = VideoStitcher()
-    
-    for vehicle in vehicles:
-        # Check overall budget
-        engine, quality = cost_tracker.get_best_engine()
-        if engine is None:
-            console.print("[red]⚠ Budget exhausted! Stopping video generation.[/red]")
-            break
-        
-        script = json.loads(vehicle.get("video_script", "{}"))
-        if not script:
-            continue
-        
-        cg_id = vehicle["cargurus_id"]
-        year = vehicle.get("year", "")
-        make = vehicle.get("make", "")
-        model = vehicle.get("model", "")
-        
-        console.print(f"\n[bold]Processing: {year} {make} {model} ({cg_id})[/bold]")
-        
-        # Try primary engine first
-        clip_paths_json = None
-        
-        if engine == "veo" or settings.PRIMARY_VIDEO_ENGINE == "veo":
-            clip_paths_json = await veo.generate_video(vehicle, script)
-        
-        # Fallback to secondary engine
-        if not clip_paths_json:
-            console.print(f"[yellow]  Falling back to Sora...[/yellow]")
-            clip_paths_json = await sora.generate_video(vehicle, script)
-        
-        if not clip_paths_json:
-            console.print(f"[red]  ✗ All engines failed for {cg_id}[/red]")
-            update_vehicle_status(vehicle["id"], "error", error_message="All video engines failed")
-            continue
-        
-        # Stitch clips into final video
-        final_path = stitcher.stitch_clips(clip_paths_json, cg_id)
-        
-        if final_path:
-            update_vehicle_status(
-                vehicle["id"],
-                "video_complete",
-                video_path=final_path,
-                video_cost=cost_tracker.session_cost,
-                video_generated_at=datetime.now().isoformat(),
-            )
-            console.print(f"[bold green]  ✓ Complete: {final_path}[/bold green]")
-        else:
-            update_vehicle_status(vehicle["id"], "error", error_message="Stitching failed")
-    
-    cost_tracker.print_summary()
+@click.group()
+def cli():
+    """CarGurus Vehicle Video Pipeline — Upload-First Workflow"""
+    pass
 
 
-@click.command()
-@click.option("--step", type=click.Choice(["scrape", "download", "scripts", "videos", "status", "all"]),
-              default="all", help="Pipeline step to run")
-@click.option("--max", "max_vehicles", type=int, default=0, help="Max vehicles to process (0 = all)")
-@click.option("--quality", type=click.Choice(["fast", "standard", "pro"]),
-              default=None, help="Video quality override")
-@click.option("--retry", "retry_errors", is_flag=True, default=False,
-              help="Reset failed vehicles to 'scraped' and re-process them")
-def main(step: str, max_vehicles: int, quality: str, retry_errors: bool):
-    """Run the CarGurus Vehicle Video Pipeline."""
+@cli.command()
+@click.argument("photos", nargs=-1, type=click.Path(exists=True), required=True)
+@click.option("--sticker", type=click.Path(exists=True), default=None, help="Window sticker image/PDF")
+@click.option("--carfax", type=click.Path(exists=True), default=None, help="Carfax report image/PDF")
+@click.option("--quality", type=click.Choice(["fast", "standard", "pro"]), default=None)
+@click.option("--phone", default=None, help="Dealer phone number for overlay")
+@click.option("--address", default=None, help="Dealer address for overlay")
+@click.option("--cta", default=None, help="Call-to-action text")
+def upload(photos, sticker, carfax, quality, phone, address, cta):
+    """Upload vehicle photos and generate a branded video.
+
+    Example:
+        python main.py upload photo1.jpg photo2.jpg --sticker sticker.jpg --carfax carfax.pdf
+    """
     print_banner()
-
-    # Override settings if provided
-    if max_vehicles > 0:
-        settings.MAX_VEHICLES = max_vehicles
-    if quality:
-        settings.VIDEO_QUALITY = quality
-    
-    # Validate config
-    if step != "status":
-        errors = settings.validate_config()
-        if errors:
-            for e in errors:
-                console.print(f"[red]⚠ Config error: {e}[/red]")
-            console.print("\n[yellow]Copy .env.example to .env and fill in your API keys[/yellow]")
-            return
-    
-    # Initialize database
     init_db()
 
-    if step == "status":
-        print_status()
+    if quality:
+        settings.VIDEO_QUALITY = quality
+
+    errors = settings.validate_config()
+    if errors:
+        for e in errors:
+            console.print(f"[red]Config error: {e}[/red]")
+        console.print("\n[yellow]Copy .env.example to .env and fill in your API keys[/yellow]")
         return
 
-    # Retry failed vehicles if requested
-    if retry_errors:
-        count = retry_failed_vehicles()
-        if count:
-            console.print(f"[green]✓ Reset {count} failed vehicle(s) for retry[/green]")
-        else:
-            console.print("[yellow]No failed vehicles to retry[/yellow]")
+    # Collect all image paths
+    all_paths = list(photos)
+    if sticker:
+        all_paths.append(sticker)
+    if carfax:
+        all_paths.append(carfax)
 
-    async def run_pipeline():
-        if step in ("scrape", "all"):
-            console.print("\n[bold]═══ Step 1: Scraping CarGurus Inventory ═══[/bold]")
-            await run_scraper(max_vehicles=max_vehicles)
-        
-        if step in ("download", "all"):
-            console.print("\n[bold]═══ Step 2: Downloading Photos & Stickers ═══[/bold]")
-            await run_downloader()
-        
-        if step in ("scripts", "all"):
-            console.print("\n[bold]═══ Step 3: Generating Video Scripts ═══[/bold]")
-            await run_script_generator()
-        
-        if step in ("videos", "all"):
-            console.print("\n[bold]═══ Step 4: Generating Videos ═══[/bold]")
-            await run_video_generation()
-        
-        console.print("\n")
-        print_status()
-    
-    asyncio.run(run_pipeline())
+    photo_paths = list(photos)
+
+    console.print(f"\n[bold]Step 1: Analyzing {len(all_paths)} images with Gemini...[/bold]")
+
+    extractor = MultimodalExtractor()
+    result = extractor.extract_and_script(all_paths)
+
+    if not result:
+        console.print("[red]Failed to extract vehicle details. Check your images and API key.[/red]")
+        return
+
+    vehicle_info = result.get("vehicle", {})
+    script_info = result.get("script", {})
+    photo_analysis = result.get("photo_analysis", {})
+    carfax_info = result.get("carfax", {})
+
+    year = vehicle_info.get("year", "")
+    make = vehicle_info.get("make", "")
+    model = vehicle_info.get("model", "")
+    trim = vehicle_info.get("trim", "")
+    vehicle_name = f"{year} {make} {model} {trim}".strip()
+    price = vehicle_info.get("price")
+
+    console.print(f"[green]Identified: {vehicle_name}[/green]")
+    if price:
+        console.print(f"[green]Price: ${price:,.0f}[/green]")
+    if carfax_info.get("accidents"):
+        console.print(f"[green]Carfax: {carfax_info['accidents']}[/green]")
+
+    # Save to database
+    upload_id = f"cli_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    vehicle_data = {
+        "cargurus_id": upload_id,
+        "vin": vehicle_info.get("vin") or "",
+        "year": vehicle_info.get("year") or 0,
+        "make": make,
+        "model": model,
+        "trim": trim,
+        "price": price or 0,
+        "mileage": vehicle_info.get("mileage") or 0,
+        "exterior_color": vehicle_info.get("exterior_color") or "",
+        "interior_color": vehicle_info.get("interior_color") or "",
+        "engine": vehicle_info.get("engine") or "",
+        "transmission": vehicle_info.get("transmission") or "",
+        "drivetrain": vehicle_info.get("drivetrain") or "",
+        "photo_paths": json.dumps(photo_paths),
+        "sticker_path": sticker or "",
+        "video_script": json.dumps(result),
+        "status": "script_generated",
+        "script_generated_at": datetime.now().isoformat(),
+    }
+    vehicle_id = upsert_vehicle(vehicle_data)
+
+    # Step 2: Generate video clip
+    console.print(f"\n[bold]Step 2: Generating AI video clip...[/bold]")
+
+    veo_prompt = script_info.get("veo_prompt", "")
+    if not veo_prompt:
+        console.print("[red]No video prompt generated[/red]")
+        return
+
+    best_idx = photo_analysis.get("best_exterior_index", 0)
+    hero_photo = photo_paths[best_idx] if best_idx < len(photo_paths) else photo_paths[0]
+
+    clip_path = None
+    engine_used = "veo"
+
+    async def generate():
+        nonlocal clip_path, engine_used
+
+        if settings.PRIMARY_VIDEO_ENGINE == "veo":
+            veo = VeoGenerator()
+            clip_path = await veo.generate_clip(veo_prompt, hero_photo, upload_id)
+
+        if not clip_path:
+            console.print("[yellow]Trying Sora fallback...[/yellow]")
+            engine_used = "sora"
+            sora = SoraGenerator()
+            clip_path = await sora.generate_clip(veo_prompt, hero_photo, upload_id)
+
+    update_vehicle_status(vehicle_id, "video_generating", video_engine=engine_used)
+    asyncio.run(generate())
+
+    if not clip_path:
+        console.print("[red]All video engines failed[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+        return
+
+    # Step 3: Overlay pipeline
+    console.print(f"\n[bold]Step 3: Adding branding and overlays...[/bold]")
+
+    overlay = VideoOverlayPipeline()
+    final_path = overlay.compose_final_video(
+        ai_clip_path=clip_path,
+        hero_photo_path=hero_photo,
+        vehicle_name=vehicle_name,
+        price=price,
+        output_name=upload_id,
+        dealer_phone=phone or "",
+        dealer_address=address or "",
+        dealer_logo_path=settings.DEALER_LOGO_PATH,
+        cta_text=cta or "",
+    )
+
+    if not final_path:
+        console.print("[red]Overlay compositing failed[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message="Overlay compositing failed")
+        return
+
+    cost_tracker = CostTracker()
+    update_vehicle_status(
+        vehicle_id,
+        "video_complete",
+        video_path=final_path,
+        video_engine=engine_used,
+        video_cost=cost_tracker.session_cost,
+        video_generated_at=datetime.now().isoformat(),
+    )
+
+    console.print(f"\n[bold green]Done! Final video: {final_path}[/bold green]")
+
+    caption = script_info.get("caption", "")
+    if caption:
+        console.print(f"\n[cyan]Social caption:[/cyan] {caption}")
+
+    print_status()
+
+
+@cli.command()
+def status():
+    """Show pipeline status."""
+    print_banner()
+    init_db()
+    print_status()
+
+
+@cli.command()
+@click.option("--port", default=8080, help="Port number")
+@click.option("--debug", is_flag=True, default=False)
+def serve(port, debug):
+    """Start the web dashboard."""
+    from app import app as flask_app
+    print_banner()
+    console.print(f"[cyan]Starting web dashboard on http://localhost:{port}[/cyan]")
+    flask_app.run(host="0.0.0.0", port=port, debug=debug)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

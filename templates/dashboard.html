@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CarGurus Video Pipeline</title>
+    <title>Vehicle Video Pipeline</title>
     <style>
         :root {
             --bg: #0f1117;
             --surface: #1a1d27;
+            --surface2: #22253a;
             --border: #2a2d3a;
             --text: #e4e4e7;
             --muted: #71717a;
@@ -24,7 +25,7 @@
             color: var(--text);
             line-height: 1.6;
         }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        .container { max-width: 960px; margin: 0 auto; padding: 0 20px; }
 
         /* Header */
         header {
@@ -32,41 +33,126 @@
             border-bottom: 1px solid var(--border);
             padding: 20px 0;
         }
-        header h1 { font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }
-        header .subtitle { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
-        .conn-status { font-size: 0.75rem; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
-        .conn-status.online { background: #1a3a2a; color: #4ade80; }
-        .conn-status.offline { background: #3b1a1a; color: #f87171; animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+        header h1 { font-size: 1.4rem; }
+        header .subtitle { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
 
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
-            margin: 24px 0;
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin: 24px 0 0 0;
+            border-bottom: 1px solid var(--border);
         }
-        .stat-card {
+        .tab {
+            padding: 10px 24px;
+            cursor: pointer;
+            color: var(--muted);
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Upload Zone */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin: 24px 0;
+            background: var(--surface);
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent);
+            background: #1a1d2f;
+        }
+        .upload-zone h3 { font-size: 1.1rem; margin-bottom: 8px; }
+        .upload-zone p { color: var(--muted); font-size: 0.85rem; }
+        .upload-zone input[type="file"] { display: none; }
+
+        /* Preview grid */
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 8px;
+            margin: 16px 0;
+        }
+        .preview-item {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .preview-item .remove-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            background: rgba(0,0,0,0.7);
+            border: none;
+            color: white;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 20px;
+            text-align: center;
+        }
+        .preview-item .label {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            text-align: center;
+        }
+
+        /* Form sections */
+        .form-section {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 20px;
+            margin: 16px 0;
         }
-        .stat-card .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: 4px; }
-        .stat-card .value.green { color: var(--green); }
-        .stat-card .value.cyan { color: var(--cyan); }
-        .stat-card .value.yellow { color: var(--yellow); }
-
-        /* Actions */
-        .actions {
-            display: flex;
+        .form-section h3 { font-size: 0.95rem; margin-bottom: 12px; }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin: 20px 0;
-            flex-wrap: wrap;
+            margin-bottom: 12px;
         }
+        .form-field { display: flex; flex-direction: column; gap: 4px; }
+        .form-field label { font-size: 0.8rem; color: var(--muted); }
+        .form-field input {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        .form-field input:focus { outline: none; border-color: var(--accent); }
+
+        /* Buttons */
         .btn {
-            padding: 10px 20px;
+            padding: 10px 24px;
             border: 1px solid var(--border);
             border-radius: 8px;
             background: var(--surface);
@@ -75,12 +161,108 @@
             font-size: 0.9rem;
             transition: all 0.2s;
         }
-        .btn:hover { border-color: var(--accent); background: #1e2130; }
-        .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+        .btn:hover { border-color: var(--accent); }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
         .btn.primary:hover { background: #2563eb; }
+        .btn.lg { padding: 14px 32px; font-size: 1rem; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Table */
+        /* Progress */
+        .progress-section {
+            display: none;
+            margin: 24px 0;
+        }
+        .progress-section.active { display: block; }
+        .progress-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+        .progress-step .step-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .progress-step.pending .step-icon { background: var(--border); color: var(--muted); }
+        .progress-step.active .step-icon { background: var(--accent); color: white; }
+        .progress-step.done .step-icon { background: var(--green); color: white; }
+        .progress-step.error .step-icon { background: var(--red); color: white; }
+        .progress-step .step-text { font-size: 0.9rem; }
+        .progress-step.pending .step-text { color: var(--muted); }
+        .spinner-sm {
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Video result */
+        .video-result {
+            display: none;
+            margin: 24px 0;
+        }
+        .video-result.active { display: block; }
+        .video-result video {
+            width: 100%;
+            max-height: 500px;
+            border-radius: 12px;
+            background: black;
+        }
+        .video-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+            align-items: center;
+        }
+        .caption-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .caption-box:hover { background: var(--surface2); }
+        .caption-box .caption-hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin: 24px 0;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .stat-card .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
+        .stat-card .value.green { color: var(--green); }
+        .stat-card .value.cyan { color: var(--cyan); }
+        .stat-card .value.yellow { color: var(--yellow); }
+
+        /* Vehicle table */
         .table-wrapper {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -89,26 +271,32 @@
             margin: 20px 0;
         }
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 12px 16px; font-size: 0.8rem; color: var(--muted);
+        th { text-align: left; padding: 12px 16px; font-size: 0.75rem; color: var(--muted);
              text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
         td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
         tr:last-child td { border-bottom: none; }
         tr:hover td { background: rgba(59, 130, 246, 0.05); }
 
-        /* Status badges */
         .badge {
             display: inline-block;
             padding: 3px 10px;
             border-radius: 999px;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 600;
         }
-        .badge.scraped { background: #1e3a5f; color: #60a5fa; }
-        .badge.photos_downloaded, .badge.sticker_downloaded { background: #1a3a2a; color: #4ade80; }
         .badge.script_generated { background: #3b2e1a; color: #fbbf24; }
         .badge.video_generating { background: #2a1a3b; color: #c084fc; }
         .badge.video_complete { background: #1a3a2a; color: #22c55e; }
         .badge.error { background: #3b1a1a; color: #f87171; }
+
+        /* Branding form */
+        .branding-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin: 24px 0;
+        }
 
         /* Modal */
         .modal-overlay {
@@ -144,119 +332,6 @@
         .modal .detail-label { color: var(--muted); min-width: 120px; font-size: 0.85rem; }
         .modal .detail-value { font-size: 0.9rem; }
 
-        /* Pipeline status banner */
-        .pipeline-banner {
-            display: none;
-            background: #1a2a3a;
-            border: 1px solid var(--accent);
-            border-radius: 8px;
-            padding: 12px 20px;
-            margin: 16px 0;
-            font-size: 0.9rem;
-            align-items: center;
-            gap: 10px;
-        }
-        .pipeline-banner.active { display: flex; }
-        .spinner {
-            width: 18px; height: 18px;
-            border: 2px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* Progress bars */
-        .action-group {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .progress-bar-wrapper {
-            height: 4px;
-            background: var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        .progress-bar-wrapper.active { opacity: 1; }
-        .progress-bar-fill {
-            height: 100%;
-            width: 0%;
-            background: var(--accent);
-            border-radius: 4px;
-            transition: width 0.3s ease;
-        }
-        .progress-bar-fill.indeterminate {
-            width: 30%;
-            animation: indeterminate 1.5s ease-in-out infinite;
-        }
-        .progress-bar-fill.success { background: var(--green); width: 100%; }
-        .progress-bar-fill.error { background: var(--red); width: 100%; }
-        @keyframes indeterminate {
-            0% { margin-left: 0%; }
-            50% { margin-left: 70%; }
-            100% { margin-left: 0%; }
-        }
-
-        /* Error log panel */
-        .log-panel {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            margin: 20px 0;
-            max-height: 300px;
-            display: flex;
-            flex-direction: column;
-        }
-        .log-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
-        }
-        .log-header h3 { font-size: 0.9rem; }
-        .log-header .log-count {
-            background: var(--red);
-            color: white;
-            font-size: 0.7rem;
-            padding: 2px 8px;
-            border-radius: 999px;
-            font-weight: 600;
-        }
-        .log-header .log-count.zero { background: var(--border); color: var(--muted); }
-        .log-body {
-            overflow-y: auto;
-            padding: 8px;
-            flex: 1;
-        }
-        .log-entry {
-            display: flex;
-            gap: 10px;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-        }
-        .log-entry:hover { background: rgba(255,255,255,0.03); }
-        .log-entry .log-time { color: var(--muted); white-space: nowrap; }
-        .log-entry .log-msg { flex: 1; word-break: break-word; }
-        .log-entry.error .log-msg { color: var(--red); }
-        .log-entry.success .log-msg { color: var(--green); }
-        .log-entry.info .log-msg { color: var(--accent); }
-        .log-entry.warn .log-msg { color: var(--yellow); }
-        .log-empty { text-align: center; padding: 20px; color: var(--muted); font-size: 0.85rem; }
-
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--muted);
-        }
-        .empty-state h3 { color: var(--text); margin-bottom: 8px; }
-
         /* Footer */
         footer {
             text-align: center;
@@ -266,130 +341,235 @@
             border-top: 1px solid var(--border);
             margin-top: 40px;
         }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--muted);
+        }
+        .empty-state h3 { color: var(--text); margin-bottom: 8px; }
+
+        @media (max-width: 640px) {
+            .form-row { grid-template-columns: 1fr; }
+            .video-actions { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="container">
-            <h1>CarGurus Video Pipeline <span class="conn-status offline" id="connStatus">Connecting...</span></h1>
-            <div class="subtitle">{{ dealer_name }} &mdash; Automated AI Video Generation</div>
+            <h1>Vehicle Video Pipeline</h1>
+            <div class="subtitle">{{ dealer_name }} &mdash; Upload-First AI Video Generation</div>
         </div>
     </header>
 
     <main class="container">
-        <!-- Pipeline Running Banner -->
-        <div class="pipeline-banner" id="pipelineBanner">
-            <div class="spinner"></div>
-            <span>Pipeline is running...</span>
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="upload">Create Video</div>
+            <div class="tab" data-tab="videos">My Videos</div>
+            <div class="tab" data-tab="settings">Branding</div>
         </div>
 
-        <!-- Stats -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="label">Total Vehicles</div>
-                <div class="value cyan">{{ stats.total_vehicles }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Videos Complete</div>
-                <div class="value green">{{ stats.videos_completed }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Total Spend</div>
-                <div class="value yellow">${{ "%.2f"|format(stats.total_cost) }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Budget Remaining</div>
-                <div class="value">${{ "%.2f"|format(settings.COST_LIMIT - stats.total_cost) }}</div>
-            </div>
-        </div>
+        <!-- ========== TAB: Upload ========== -->
+        <div id="tab-upload" class="tab-content active">
 
-        <!-- Actions -->
-        <div class="actions">
-            <div class="action-group" id="action-all">
-                <button class="btn primary" onclick="runPipeline('all')">Run Full Pipeline</button>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group" id="action-scrape">
-                <button class="btn" onclick="runPipeline('scrape')">Scrape Only</button>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group" id="action-download">
-                <button class="btn" onclick="runPipeline('download')">Download Assets</button>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group" id="action-scripts">
-                <button class="btn" onclick="runPipeline('scripts')">Generate Scripts</button>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group" id="action-videos">
-                <button class="btn" onclick="runPipeline('videos')">Generate Videos</button>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group" id="action-csv">
-                <label class="btn" style="position:relative;cursor:pointer">
-                    Upload CSV
-                    <input type="file" accept=".csv" id="csvUpload" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="uploadCSV(this)">
-                </label>
-                <div class="progress-bar-wrapper"><div class="progress-bar-fill"></div></div>
-            </div>
-            <div class="action-group">
-                <button class="btn" onclick="refreshData()">Refresh</button>
-            </div>
-        </div>
+            <!-- Upload form -->
+            <div id="uploadForm">
+                <!-- Vehicle Photos -->
+                <div class="upload-zone" id="photoZone">
+                    <h3>Vehicle Photos</h3>
+                    <p>Drag & drop or click to upload 3-10 exterior and interior photos</p>
+                    <input type="file" id="photoInput" multiple accept="image/*">
+                </div>
+                <div class="preview-grid" id="photoPreview"></div>
 
-        <!-- Error Log -->
-        <div class="log-panel" id="logPanel">
-            <div class="log-header">
-                <h3>Activity Log</h3>
-                <div style="display:flex;gap:8px;align-items:center">
-                    <span class="log-count zero" id="logCount">0</span>
-                    <button class="btn" style="padding:4px 12px;font-size:0.75rem" onclick="clearLog()">Clear</button>
+                <!-- Sticker + Carfax side by side -->
+                <div class="form-row">
+                    <div>
+                        <div class="upload-zone" id="stickerZone" style="padding:20px 12px">
+                            <h3 style="font-size:0.95rem">Window Sticker</h3>
+                            <p>Image or PDF (optional)</p>
+                            <input type="file" id="stickerInput" accept="image/*,.pdf">
+                        </div>
+                        <div id="stickerPreview" class="preview-grid"></div>
+                    </div>
+                    <div>
+                        <div class="upload-zone" id="carfaxZone" style="padding:20px 12px">
+                            <h3 style="font-size:0.95rem">Carfax Report</h3>
+                            <p>Image or PDF (optional)</p>
+                            <input type="file" id="carfaxInput" accept="image/*,.pdf">
+                        </div>
+                        <div id="carfaxPreview" class="preview-grid"></div>
+                    </div>
+                </div>
+
+                <!-- Optional overrides -->
+                <div class="form-section" id="overridesSection">
+                    <h3>Override Contact Info (optional)</h3>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>Phone Number</label>
+                            <input type="text" id="overridePhone" placeholder="{{ dealer_phone or 'e.g. (210) 555-1234' }}">
+                        </div>
+                        <div class="form-field">
+                            <label>Address</label>
+                            <input type="text" id="overrideAddress" placeholder="{{ dealer_address or 'e.g. 123 Main St, San Antonio, TX' }}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>Call-to-Action Text</label>
+                            <input type="text" id="overrideCTA" placeholder="e.g. Call Today!">
+                        </div>
+                        <div class="form-field"></div>
+                    </div>
+                </div>
+
+                <!-- Submit button -->
+                <div style="text-align:center; margin: 24px 0;">
+                    <button class="btn primary lg" id="generateBtn" onclick="submitUpload()" disabled>
+                        Generate Video
+                    </button>
+                    <p style="color:var(--muted); font-size:0.8rem; margin-top:8px;">
+                        Estimated cost: ~$<span id="costEstimate">1.20</span> per video
+                    </p>
                 </div>
             </div>
-            <div class="log-body" id="logBody">
-                <div class="log-empty">No activity yet. Run a pipeline step to see logs here.</div>
+
+            <!-- Progress section (shown during processing) -->
+            <div class="progress-section" id="progressSection">
+                <h2 style="margin-bottom:16px">Generating Your Video</h2>
+                <div class="progress-steps">
+                    <div class="progress-step active" id="step-extracting">
+                        <div class="step-icon"><div class="spinner-sm"></div></div>
+                        <div class="step-text">Analyzing images with Gemini AI...</div>
+                    </div>
+                    <div class="progress-step pending" id="step-generating">
+                        <div class="step-icon">2</div>
+                        <div class="step-text">Generating cinematic video clip...</div>
+                    </div>
+                    <div class="progress-step pending" id="step-compositing">
+                        <div class="step-icon">3</div>
+                        <div class="step-text">Adding branding and overlays...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video result (shown when done) -->
+            <div class="video-result" id="videoResult">
+                <h2 style="margin-bottom:16px">Your Video is Ready!</h2>
+                <video id="resultVideo" controls></video>
+                <div class="video-actions">
+                    <a id="downloadLink" class="btn primary" download>Download Video</a>
+                    <button class="btn" onclick="resetUpload()">Create Another</button>
+                </div>
+                <div class="caption-box" id="captionBox" onclick="copyCaption()">
+                    <div id="captionText"></div>
+                    <div class="caption-hint">Click to copy caption to clipboard</div>
+                </div>
+            </div>
+
+            <!-- Error display -->
+            <div class="form-section" id="errorSection" style="display:none; border-color: var(--red);">
+                <h3 style="color:var(--red)">Something went wrong</h3>
+                <p id="errorMessage" style="margin-top:8px"></p>
+                <button class="btn" style="margin-top:12px" onclick="resetUpload()">Try Again</button>
             </div>
         </div>
 
-        <!-- Vehicle Table -->
-        {% if vehicles %}
-        <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Vehicle</th>
-                        <th>Price</th>
-                        <th>Mileage</th>
-                        <th>Color</th>
-                        <th>Status</th>
-                        <th>Cost</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for v in vehicles %}
-                    <tr>
-                        <td>
-                            <strong>{{ v.year or '' }} {{ v.make or '' }} {{ v.model or '' }}</strong>
-                            {% if v.trim %}<br><span style="color:var(--muted);font-size:0.8rem">{{ v.trim }}</span>{% endif %}
-                        </td>
-                        <td>{% if v.price %}${{ "{:,.0f}".format(v.price) }}{% else %}&mdash;{% endif %}</td>
-                        <td>{% if v.mileage %}{{ "{:,}".format(v.mileage) }} mi{% else %}&mdash;{% endif %}</td>
-                        <td>{{ v.exterior_color or '&mdash;' }}</td>
-                        <td><span class="badge {{ v.status }}">{{ v.status | replace('_', ' ') }}</span></td>
-                        <td>{% if v.video_cost %}${{ "%.2f"|format(v.video_cost) }}{% else %}&mdash;{% endif %}</td>
-                        <td><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail({{ v.id }})">View</button></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <!-- ========== TAB: Videos ========== -->
+        <div id="tab-videos" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">Total Vehicles</div>
+                    <div class="value cyan" id="statTotal">{{ stats.total_vehicles }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Videos Complete</div>
+                    <div class="value green" id="statComplete">{{ stats.videos_completed }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Spend</div>
+                    <div class="value yellow" id="statSpend">${{ "%.2f"|format(stats.total_cost) }}</div>
+                </div>
+            </div>
+
+            {% if vehicles %}
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Price</th>
+                            <th>Status</th>
+                            <th>Cost</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in vehicles %}
+                        <tr>
+                            <td>
+                                <strong>{{ v.year or '' }} {{ v.make or '' }} {{ v.model or '' }}</strong>
+                                {% if v.trim %}<br><span style="color:var(--muted);font-size:0.8rem">{{ v.trim }}</span>{% endif %}
+                            </td>
+                            <td>{% if v.price %}${{ "{:,.0f}".format(v.price) }}{% else %}&mdash;{% endif %}</td>
+                            <td><span class="badge {{ v.status }}">{{ v.status | replace('_', ' ') }}</span></td>
+                            <td>{% if v.video_cost %}${{ "%.2f"|format(v.video_cost) }}{% else %}&mdash;{% endif %}</td>
+                            <td><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail({{ v.id }})">View</button></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <h3>No videos yet</h3>
+                <p>Upload vehicle photos to create your first video.</p>
+            </div>
+            {% endif %}
         </div>
-        {% else %}
-        <div class="empty-state">
-            <h3>No vehicles yet</h3>
-            <p>Run the pipeline to start scraping CarGurus inventory and generating videos.</p>
+
+        <!-- ========== TAB: Branding ========== -->
+        <div id="tab-settings" class="tab-content">
+            <div class="branding-section">
+                <h2 style="margin-bottom:16px">Dealer Branding</h2>
+                <p style="color:var(--muted);margin-bottom:20px;font-size:0.85rem">
+                    Set your branding once. It will appear on every video you generate.
+                </p>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Dealership Name</label>
+                        <input type="text" id="brandingName" value="{{ dealer_name }}">
+                    </div>
+                    <div class="form-field">
+                        <label>Phone Number</label>
+                        <input type="text" id="brandingPhone" value="{{ dealer_phone }}" placeholder="(210) 555-1234">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Address</label>
+                        <input type="text" id="brandingAddress" value="{{ dealer_address }}" placeholder="123 Main St, San Antonio, TX">
+                    </div>
+                    <div class="form-field">
+                        <label>Website</label>
+                        <input type="text" id="brandingWebsite" value="{{ settings.DEALER_WEBSITE }}" placeholder="www.example.com">
+                    </div>
+                </div>
+
+                <div style="margin:16px 0">
+                    <label style="font-size:0.8rem;color:var(--muted);display:block;margin-bottom:8px">Dealer Logo (PNG with transparency recommended)</label>
+                    <input type="file" id="brandingLogo" accept="image/*" style="font-size:0.85rem;color:var(--text)">
+                </div>
+
+                <button class="btn primary" onclick="saveBranding()">Save Branding</button>
+                <span id="brandingSaved" style="color:var(--green);margin-left:12px;font-size:0.85rem;display:none">Saved!</span>
+            </div>
         </div>
-        {% endif %}
     </main>
 
     <!-- Detail Modal -->
@@ -403,154 +583,285 @@
 
     <footer>
         <div class="container">
-            CarGurus Video Pipeline &mdash; Silva Consulting Group
+            Vehicle Video Pipeline &mdash; Silva Consulting Group
         </div>
     </footer>
 
     <script>
-        // --- Logging ---
-        let logEntries = [];
-        let errorCount = 0;
+        // ==================== TAB NAVIGATION ====================
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
 
-        function addLog(message, level = 'info') {
-            const now = new Date();
-            const time = now.toLocaleTimeString('en-US', { hour12: false });
-            logEntries.push({ time, message, level });
-            if (level === 'error') errorCount++;
-            renderLog();
-        }
+        // ==================== FILE UPLOAD HANDLING ====================
+        let photoFiles = [];
+        let stickerFile = null;
+        let carfaxFile = null;
 
-        function renderLog() {
-            const body = document.getElementById('logBody');
-            const countEl = document.getElementById('logCount');
-            countEl.textContent = errorCount;
-            countEl.classList.toggle('zero', errorCount === 0);
-
-            if (logEntries.length === 0) {
-                body.innerHTML = '<div class="log-empty">No activity yet. Run a pipeline step to see logs here.</div>';
-                return;
+        // Wire up drop zones
+        setupDropZone('photoZone', 'photoInput', (files) => {
+            for (const f of files) {
+                if (photoFiles.length < 10) photoFiles.push(f);
             }
+            renderPhotoPreviews();
+            updateGenerateBtn();
+        });
 
-            body.innerHTML = logEntries.map(e =>
-                `<div class="log-entry ${e.level}"><span class="log-time">${e.time}</span><span class="log-msg">${e.message}</span></div>`
-            ).join('');
-            body.scrollTop = body.scrollHeight;
+        setupDropZone('stickerZone', 'stickerInput', (files) => {
+            stickerFile = files[0] || null;
+            renderSinglePreview('stickerPreview', stickerFile, 'Sticker');
+            updateGenerateBtn();
+        });
+
+        setupDropZone('carfaxZone', 'carfaxInput', (files) => {
+            carfaxFile = files[0] || null;
+            renderSinglePreview('carfaxPreview', carfaxFile, 'Carfax');
+            updateGenerateBtn();
+        });
+
+        function setupDropZone(zoneId, inputId, onFiles) {
+            const zone = document.getElementById(zoneId);
+            const input = document.getElementById(inputId);
+
+            zone.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => {
+                onFiles(Array.from(input.files));
+                input.value = '';
+            });
+
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+            zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                onFiles(Array.from(e.dataTransfer.files));
+            });
         }
 
-        function clearLog() {
-            logEntries = [];
-            errorCount = 0;
-            renderLog();
+        function renderPhotoPreviews() {
+            const container = document.getElementById('photoPreview');
+            container.innerHTML = photoFiles.map((f, i) => {
+                const url = URL.createObjectURL(f);
+                return `<div class="preview-item">
+                    <img src="${url}" alt="Photo ${i + 1}">
+                    <button class="remove-btn" onclick="removePhoto(${i})">&times;</button>
+                    <div class="label">Photo ${i + 1}</div>
+                </div>`;
+            }).join('');
         }
 
-        // --- Progress bars ---
-        function setProgress(actionId, state) {
-            const group = document.getElementById(actionId);
-            if (!group) return;
-            const wrapper = group.querySelector('.progress-bar-wrapper');
-            const fill = group.querySelector('.progress-bar-fill');
-            const btn = group.querySelector('.btn');
+        function renderSinglePreview(containerId, file, label) {
+            const container = document.getElementById(containerId);
+            if (!file) { container.innerHTML = ''; return; }
 
-            fill.className = 'progress-bar-fill';
-            if (state === 'loading') {
-                wrapper.classList.add('active');
-                fill.classList.add('indeterminate');
-                if (btn) btn.disabled = true;
-            } else if (state === 'success') {
-                wrapper.classList.add('active');
-                fill.classList.add('success');
-                if (btn) btn.disabled = false;
-                setTimeout(() => { wrapper.classList.remove('active'); }, 3000);
-            } else if (state === 'error') {
-                wrapper.classList.add('active');
-                fill.classList.add('error');
-                if (btn) btn.disabled = false;
-                setTimeout(() => { wrapper.classList.remove('active'); }, 5000);
+            if (file.type.startsWith('image/')) {
+                const url = URL.createObjectURL(file);
+                container.innerHTML = `<div class="preview-item">
+                    <img src="${url}" alt="${label}">
+                    <div class="label">${label}</div>
+                </div>`;
             } else {
-                wrapper.classList.remove('active');
-                if (btn) btn.disabled = false;
+                container.innerHTML = `<div class="preview-item" style="display:flex;align-items:center;justify-content:center;background:var(--surface2)">
+                    <span style="font-size:0.7rem;color:var(--muted)">${file.name}</span>
+                    <div class="label">${label} (PDF)</div>
+                </div>`;
             }
         }
 
-        // --- Pipeline status ---
-        let _backendReachable = true;
-        let _lastStatusError = 0;
-        checkPipelineStatus();
-        setInterval(checkPipelineStatus, 5000);
+        function removePhoto(index) {
+            photoFiles.splice(index, 1);
+            renderPhotoPreviews();
+            updateGenerateBtn();
+        }
 
-        async function checkPipelineStatus() {
+        function updateGenerateBtn() {
+            document.getElementById('generateBtn').disabled = photoFiles.length === 0;
+        }
+
+        // ==================== SUBMIT & POLL ====================
+        let currentJobId = null;
+
+        async function submitUpload() {
+            const formData = new FormData();
+
+            for (const f of photoFiles) {
+                formData.append('photos[]', f);
+            }
+            if (stickerFile) formData.append('sticker', stickerFile);
+            if (carfaxFile) formData.append('carfax', carfaxFile);
+
+            // Add overrides
+            const phone = document.getElementById('overridePhone').value;
+            const address = document.getElementById('overrideAddress').value;
+            const cta = document.getElementById('overrideCTA').value;
+            if (phone) formData.append('dealer_phone', phone);
+            if (address) formData.append('dealer_address', address);
+            if (cta) formData.append('cta_text', cta);
+
+            // Switch to progress view
+            document.getElementById('uploadForm').style.display = 'none';
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('errorSection').style.display = 'none';
+            document.getElementById('videoResult').classList.remove('active');
+
             try {
-                const res = await fetch('/api/status');
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
                 const data = await res.json();
-                const connEl = document.getElementById('connStatus');
-                connEl.textContent = 'Connected';
-                connEl.className = 'conn-status online';
-                if (!_backendReachable) {
-                    _backendReachable = true;
-                    addLog('Backend connection restored', 'success');
-                }
-                const banner = document.getElementById('pipelineBanner');
-                const wasRunning = banner.classList.contains('active');
-                banner.classList.toggle('active', data.running);
 
-                if (wasRunning && !data.running) {
-                    addLog('Pipeline finished', 'success');
-                    // Clear all loading progress bars
-                    document.querySelectorAll('.progress-bar-fill.indeterminate').forEach(el => {
-                        const wrapper = el.closest('.progress-bar-wrapper');
-                        const group = el.closest('.action-group');
-                        el.className = 'progress-bar-fill success';
-                        if (group) {
-                            const btn = group.querySelector('.btn');
-                            if (btn) btn.disabled = false;
-                        }
-                        setTimeout(() => { if (wrapper) wrapper.classList.remove('active'); }, 3000);
-                    });
+                if (!res.ok) {
+                    showError(data.error || 'Upload failed');
+                    return;
                 }
+
+                currentJobId = data.job_id;
+                pollJob();
             } catch (e) {
-                // Only log backend-unreachable once, not every 5 seconds
-                const now = Date.now();
-                const connEl = document.getElementById('connStatus');
-                connEl.textContent = 'Disconnected';
-                connEl.className = 'conn-status offline';
-                if (_backendReachable || now - _lastStatusError > 30000) {
-                    _backendReachable = false;
-                    _lastStatusError = now;
-                    addLog('Backend unreachable — make sure the Flask server is running (python app.py)', 'error');
-                }
+                showError('Network error: ' + e.message);
             }
         }
 
-        async function runPipeline(step) {
-            console.log('[Pipeline] Button clicked:', step);
-            const actionId = 'action-' + step;
-            setProgress(actionId, 'loading');
-            addLog(`Starting pipeline: ${step}...`, 'info');
+        async function pollJob() {
+            if (!currentJobId) return;
 
             try {
-                const res = await fetch('/api/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ step: step, max_vehicles: 0 })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    addLog(`Pipeline started: ${step}`, 'success');
-                    checkPipelineStatus();
+                const res = await fetch(`/api/job/${currentJobId}`);
+                const job = await res.json();
+
+                if (res.status === 404) {
+                    showError('Job not found');
+                    return;
+                }
+
+                // Update progress steps
+                updateProgressSteps(job.status);
+
+                if (job.status === 'complete') {
+                    showVideoResult(job);
+                    return;
+                }
+
+                if (job.status === 'error') {
+                    showError(job.progress || 'Unknown error');
+                    return;
+                }
+
+                // Keep polling
+                setTimeout(pollJob, 2000);
+            } catch (e) {
+                setTimeout(pollJob, 3000);
+            }
+        }
+
+        function updateProgressSteps(status) {
+            const steps = {
+                extracting: ['active', 'pending', 'pending'],
+                generating: ['done', 'active', 'pending'],
+                compositing: ['done', 'done', 'active'],
+                complete: ['done', 'done', 'done'],
+            };
+
+            const classes = steps[status] || steps.extracting;
+            const stepIds = ['step-extracting', 'step-generating', 'step-compositing'];
+            const icons = { pending: '', active: '<div class="spinner-sm"></div>', done: '&#10003;', error: '!' };
+
+            stepIds.forEach((id, i) => {
+                const el = document.getElementById(id);
+                el.className = 'progress-step ' + classes[i];
+                const iconEl = el.querySelector('.step-icon');
+                if (classes[i] === 'active') {
+                    iconEl.innerHTML = icons.active;
+                } else if (classes[i] === 'done') {
+                    iconEl.innerHTML = icons.done;
                 } else {
-                    setProgress(actionId, 'error');
-                    addLog(`Failed to start ${step}: ${data.error}`, 'error');
+                    iconEl.textContent = i + 1;
                 }
-            } catch (e) {
-                setProgress(actionId, 'error');
-                addLog(`Network error — is the backend running? ${e.message}`, 'error');
+            });
+        }
+
+        function showVideoResult(job) {
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('videoResult').classList.add('active');
+
+            const videoUrl = `/videos/${job.video_filename}`;
+            document.getElementById('resultVideo').src = videoUrl;
+            document.getElementById('downloadLink').href = videoUrl;
+            document.getElementById('downloadLink').download = job.video_filename;
+
+            if (job.caption) {
+                document.getElementById('captionText').textContent = job.caption;
+                document.getElementById('captionBox').style.display = 'block';
+            } else {
+                document.getElementById('captionBox').style.display = 'none';
             }
         }
 
-        function refreshData() {
-            window.location.reload();
+        function showError(message) {
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('errorSection').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
         }
 
+        function resetUpload() {
+            photoFiles = [];
+            stickerFile = null;
+            carfaxFile = null;
+            currentJobId = null;
+
+            document.getElementById('photoPreview').innerHTML = '';
+            document.getElementById('stickerPreview').innerHTML = '';
+            document.getElementById('carfaxPreview').innerHTML = '';
+
+            document.getElementById('uploadForm').style.display = 'block';
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('videoResult').classList.remove('active');
+            document.getElementById('errorSection').style.display = 'none';
+
+            updateGenerateBtn();
+        }
+
+        function copyCaption() {
+            const text = document.getElementById('captionText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const hint = document.querySelector('.caption-hint');
+                hint.textContent = 'Copied!';
+                setTimeout(() => { hint.textContent = 'Click to copy caption to clipboard'; }, 2000);
+            });
+        }
+
+        // ==================== BRANDING ====================
+        async function saveBranding() {
+            const formData = new FormData();
+            formData.append('dealer_name', document.getElementById('brandingName').value);
+            formData.append('phone', document.getElementById('brandingPhone').value);
+            formData.append('address', document.getElementById('brandingAddress').value);
+            formData.append('website', document.getElementById('brandingWebsite').value);
+
+            const logoInput = document.getElementById('brandingLogo');
+            if (logoInput.files[0]) {
+                formData.append('logo', logoInput.files[0]);
+            }
+
+            try {
+                const res = await fetch('/api/branding', { method: 'POST', body: formData });
+                if (res.ok) {
+                    const saved = document.getElementById('brandingSaved');
+                    saved.style.display = 'inline';
+                    setTimeout(() => { saved.style.display = 'none'; }, 3000);
+                }
+            } catch (e) {
+                console.error('Failed to save branding:', e);
+            }
+        }
+
+        // ==================== VEHICLE DETAIL MODAL ====================
         async function showDetail(vehicleId) {
             try {
                 const res = await fetch(`/api/vehicle/${vehicleId}`);
@@ -568,7 +879,6 @@
                     ['Exterior', v.exterior_color],
                     ['Interior', v.interior_color],
                     ['Engine', v.engine],
-                    ['Transmission', v.transmission],
                     ['Drivetrain', v.drivetrain],
                     ['Video Engine', v.video_engine],
                     ['Video Cost', v.video_cost ? `$${v.video_cost.toFixed(2)}` : null],
@@ -582,23 +892,20 @@
 
                 if (v.video_path) {
                     const filename = v.video_path.split('/').pop();
-                    html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Generated Video</h3>`;
-                    html += `<video controls style="width:100%;max-height:400px;border-radius:8px" src="/videos/${filename}"></video></div>`;
+                    html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Video</h3>`;
+                    html += `<video controls style="width:100%;max-height:400px;border-radius:8px" src="/videos/${filename}"></video>`;
+                    html += `<div style="margin-top:8px"><a href="/videos/${filename}" download class="btn" style="text-decoration:none">Download</a></div></div>`;
                 }
 
-                if (v.script_parsed) {
-                    html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Video Script</h3>`;
-                    html += `<div style="background:var(--bg);padding:12px;border-radius:8px;font-size:0.8rem;max-height:200px;overflow-y:auto"><pre>${JSON.stringify(v.script_parsed, null, 2)}</pre></div></div>`;
-                }
-
-                if (v.listing_url) {
-                    html += `<div style="margin-top:16px"><a href="${v.listing_url}" target="_blank" class="btn" style="text-decoration:none">View on CarGurus</a></div>`;
+                if (v.script_parsed && v.script_parsed.script && v.script_parsed.script.caption) {
+                    html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Caption</h3>`;
+                    html += `<div style="background:var(--bg);padding:12px;border-radius:8px;font-size:0.85rem">${v.script_parsed.script.caption}</div></div>`;
                 }
 
                 document.getElementById('modalContent').innerHTML = html;
                 document.getElementById('detailModal').classList.add('active');
             } catch (e) {
-                addLog(`Failed to load vehicle #${vehicleId}: ${e.message}`, 'error');
+                console.error('Failed to load vehicle:', e);
             }
         }
 
@@ -610,33 +917,10 @@
             if (e.target === this) closeModal();
         });
 
-        async function uploadCSV(input) {
-            const file = input.files[0];
-            if (!file) return;
-
-            setProgress('action-csv', 'loading');
-            addLog(`Uploading CSV: ${file.name}...`, 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const res = await fetch('/api/upload-csv', { method: 'POST', body: formData });
-                const data = await res.json();
-                if (res.ok) {
-                    setProgress('action-csv', 'success');
-                    addLog(`CSV imported: ${data.imported} vehicles` + (data.skipped ? `, ${data.skipped} skipped` : ''), 'success');
-                    setTimeout(() => window.location.reload(), 1500);
-                } else {
-                    setProgress('action-csv', 'error');
-                    addLog(`CSV upload error: ${data.error}`, 'error');
-                }
-            } catch (e) {
-                setProgress('action-csv', 'error');
-                addLog(`CSV upload failed: ${e.message}`, 'error');
-            }
-            input.value = '';
-        }
+        // ==================== COST ESTIMATE ====================
+        const costs = { veo: { fast: 1.20, standard: 3.20, pro: 6.00 }, sora: { fast: 1.00, standard: 3.00, pro: 5.00 } };
+        document.getElementById('costEstimate').textContent =
+            (costs['{{ settings.PRIMARY_VIDEO_ENGINE }}'] || costs.veo)['{{ settings.VIDEO_QUALITY }}'] || '1.20';
     </script>
 </body>
 </html>
