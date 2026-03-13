@@ -172,7 +172,11 @@ class MultimodalExtractor:
 
     def _parse_response(self, response) -> dict | None:
         """Parse JSON from Gemini response."""
-        text = response.text.strip()
+        try:
+            text = response.text.strip()
+        except Exception as e:
+            console.print(f"[red]Could not read Gemini response text: {e}[/red]")
+            return None
 
         # Strip markdown code fences
         if text.startswith("```"):
@@ -190,7 +194,7 @@ class MultimodalExtractor:
                     return json.loads(json_match.group())
                 except json.JSONDecodeError:
                     pass
-            console.print(f"[red]Failed to parse Gemini response as JSON[/red]")
+            console.print(f"[red]Failed to parse Gemini extraction response. First 500 chars: {text[:500]}[/red]")
             return None
 
     def _get_mime_type(self, path: Path) -> str:

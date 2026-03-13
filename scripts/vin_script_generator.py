@@ -105,7 +105,11 @@ class VINScriptGenerator:
 
         console.print("[cyan]Generating video script from VIN specs...[/cyan]")
 
-        response = self._call_gemini(prompt)
+        try:
+            response = self._call_gemini(prompt)
+        except Exception as e:
+            console.print(f"[red]Gemini API error in VIN script generation: {e}[/red]")
+            return None
         return self._parse_response(response)
 
     @retry_sync(max_retries=3, base_delay=2.0, operation_name="Gemini VIN script generation")
@@ -116,11 +120,17 @@ class VINScriptGenerator:
             config=types.GenerateContentConfig(
                 temperature=0.9,
                 max_output_tokens=3000,
+                thinking_config=types.ThinkingConfig(thinking_budget=2048),
             ),
         )
 
     def _parse_response(self, response) -> dict | None:
-        text = response.text.strip()
+        try:
+            text = response.text.strip()
+        except Exception as e:
+            console.print(f"[red]Could not read Gemini response text: {e}[/red]")
+            return None
+
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
         if text.endswith("```"):
@@ -136,5 +146,5 @@ class VINScriptGenerator:
                     return json.loads(json_match.group())
                 except json.JSONDecodeError:
                     pass
-            console.print("[red]Failed to parse Gemini response[/red]")
+            console.print(f"[red]Failed to parse VIN script response. First 500 chars: {text[:500]}[/red]")
             return None
