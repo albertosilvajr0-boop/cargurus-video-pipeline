@@ -73,7 +73,7 @@ class VINScriptGenerator:
 
     def __init__(self):
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = "gemini-2.5-flash"
 
     def generate(self, vehicle_specs: dict, price: float | int | None = None) -> dict | None:
         """

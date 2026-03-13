@@ -90,7 +90,7 @@ class ScriptGenerator:
 
     def __init__(self):
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = "gemini-2.5-flash"
         self.cost_tracker = CostTracker()
 
     async def generate_all_scripts(self):
