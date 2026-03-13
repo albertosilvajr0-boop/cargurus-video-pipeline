@@ -122,7 +122,7 @@ class VeoGenerator:
             if video.video.video_bytes:
                 output_path.write_bytes(video.video.video_bytes)
             elif video.video.uri:
-                async with httpx.AsyncClient(timeout=120) as client:
+                async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
                     resp = await client.get(video.video.uri)
                     resp.raise_for_status()
                     output_path.write_bytes(resp.content)
