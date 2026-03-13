@@ -375,66 +375,137 @@
         <!-- ========== TAB: Upload ========== -->
         <div id="tab-upload" class="tab-content active">
 
-            <!-- Upload form -->
+            <!-- Mode toggle -->
             <div id="uploadForm">
-                <!-- Vehicle Photos -->
-                <div class="upload-zone" id="photoZone">
-                    <h3>Vehicle Photos</h3>
-                    <p>Drag & drop or click to upload 3-10 exterior and interior photos</p>
-                    <input type="file" id="photoInput" multiple accept="image/*">
-                </div>
-                <div class="preview-grid" id="photoPreview"></div>
-
-                <!-- Sticker + Carfax side by side -->
-                <div class="form-row">
-                    <div>
-                        <div class="upload-zone" id="stickerZone" style="padding:20px 12px">
-                            <h3 style="font-size:0.95rem">Window Sticker</h3>
-                            <p>Image or PDF (optional)</p>
-                            <input type="file" id="stickerInput" accept="image/*,.pdf">
-                        </div>
-                        <div id="stickerPreview" class="preview-grid"></div>
-                    </div>
-                    <div>
-                        <div class="upload-zone" id="carfaxZone" style="padding:20px 12px">
-                            <h3 style="font-size:0.95rem">Carfax Report</h3>
-                            <p>Image or PDF (optional)</p>
-                            <input type="file" id="carfaxInput" accept="image/*,.pdf">
-                        </div>
-                        <div id="carfaxPreview" class="preview-grid"></div>
-                    </div>
+                <div style="display:flex;gap:0;margin:24px 0 0 0;background:var(--surface);border-radius:10px;border:1px solid var(--border);overflow:hidden;width:fit-content">
+                    <button class="mode-toggle active" id="modeVin" onclick="setMode('vin')" style="padding:10px 24px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s">Paste VIN</button>
+                    <button class="mode-toggle" id="modeUpload" onclick="setMode('upload')" style="padding:10px 24px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:0.9rem;transition:all 0.2s">Upload Photos</button>
                 </div>
 
-                <!-- Optional overrides -->
-                <div class="form-section" id="overridesSection">
-                    <h3>Override Contact Info (optional)</h3>
+                <!-- ===== VIN MODE ===== -->
+                <div id="vinMode">
+                    <div class="form-section" style="margin-top:16px">
+                        <h3>Enter VIN Number</h3>
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
+                            Paste a 17-character VIN and we'll decode it, write a cinematic script, and generate a branded video automatically.
+                        </p>
+                        <div style="display:flex;gap:12px;align-items:flex-end">
+                            <div class="form-field" style="flex:1">
+                                <label>VIN</label>
+                                <input type="text" id="vinInput" placeholder="e.g. 1C4RJFAG5LC123456"
+                                       maxlength="17" style="font-family:monospace;font-size:1.1rem;letter-spacing:2px;text-transform:uppercase"
+                                       oninput="onVinInput(this)">
+                            </div>
+                            <button class="btn" id="vinDecodeBtn" onclick="decodeVin()" disabled style="white-space:nowrap">
+                                Decode
+                            </button>
+                        </div>
+                        <!-- Decoded specs preview -->
+                        <div id="vinSpecs" style="display:none;margin-top:16px;padding:16px;background:var(--bg);border-radius:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                                <h3 id="vinVehicleName" style="font-size:1rem;color:var(--green)"></h3>
+                                <span style="font-size:0.75rem;color:var(--muted)">NHTSA Decoded</span>
+                            </div>
+                            <div id="vinSpecsList" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:0.85rem"></div>
+                        </div>
+                    </div>
+
+                    <!-- Optional price + overrides -->
+                    <div class="form-section">
+                        <h3>Optional Details</h3>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label>Sale Price</label>
+                                <input type="text" id="vinPrice" placeholder="e.g. 42,990" oninput="updateVinGenerateBtn()">
+                            </div>
+                            <div class="form-field">
+                                <label>Call-to-Action Text</label>
+                                <input type="text" id="vinCTA" placeholder="e.g. Call Today!">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label>Phone Number Override</label>
+                                <input type="text" id="vinPhone" placeholder="{{ dealer_phone or 'Uses branding default' }}">
+                            </div>
+                            <div class="form-field">
+                                <label>Address Override</label>
+                                <input type="text" id="vinAddress" placeholder="{{ dealer_address or 'Uses branding default' }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="text-align:center; margin: 24px 0;">
+                        <button class="btn primary lg" id="vinGenerateBtn" onclick="submitVin()" disabled>
+                            Generate Video from VIN
+                        </button>
+                        <p style="color:var(--muted); font-size:0.8rem; margin-top:8px;">
+                            No photos needed &mdash; AI generates everything from specs
+                        </p>
+                    </div>
+                </div>
+
+                <!-- ===== UPLOAD MODE ===== -->
+                <div id="uploadMode" style="display:none">
+                    <!-- Vehicle Photos -->
+                    <div class="upload-zone" id="photoZone">
+                        <h3>Vehicle Photos</h3>
+                        <p>Drag & drop or click to upload 3-10 exterior and interior photos</p>
+                        <input type="file" id="photoInput" multiple accept="image/*">
+                    </div>
+                    <div class="preview-grid" id="photoPreview"></div>
+
+                    <!-- Sticker + Carfax side by side -->
                     <div class="form-row">
-                        <div class="form-field">
-                            <label>Phone Number</label>
-                            <input type="text" id="overridePhone" placeholder="{{ dealer_phone or 'e.g. (210) 555-1234' }}">
+                        <div>
+                            <div class="upload-zone" id="stickerZone" style="padding:20px 12px">
+                                <h3 style="font-size:0.95rem">Window Sticker</h3>
+                                <p>Image or PDF (optional)</p>
+                                <input type="file" id="stickerInput" accept="image/*,.pdf">
+                            </div>
+                            <div id="stickerPreview" class="preview-grid"></div>
                         </div>
-                        <div class="form-field">
-                            <label>Address</label>
-                            <input type="text" id="overrideAddress" placeholder="{{ dealer_address or 'e.g. 123 Main St, San Antonio, TX' }}">
+                        <div>
+                            <div class="upload-zone" id="carfaxZone" style="padding:20px 12px">
+                                <h3 style="font-size:0.95rem">Carfax Report</h3>
+                                <p>Image or PDF (optional)</p>
+                                <input type="file" id="carfaxInput" accept="image/*,.pdf">
+                            </div>
+                            <div id="carfaxPreview" class="preview-grid"></div>
                         </div>
                     </div>
-                    <div class="form-row">
-                        <div class="form-field">
-                            <label>Call-to-Action Text</label>
-                            <input type="text" id="overrideCTA" placeholder="e.g. Call Today!">
-                        </div>
-                        <div class="form-field"></div>
-                    </div>
-                </div>
 
-                <!-- Submit button -->
-                <div style="text-align:center; margin: 24px 0;">
-                    <button class="btn primary lg" id="generateBtn" onclick="submitUpload()" disabled>
-                        Generate Video
-                    </button>
-                    <p style="color:var(--muted); font-size:0.8rem; margin-top:8px;">
-                        Estimated cost: ~$<span id="costEstimate">1.20</span> per video
-                    </p>
+                    <!-- Optional overrides -->
+                    <div class="form-section" id="overridesSection">
+                        <h3>Override Contact Info (optional)</h3>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label>Phone Number</label>
+                                <input type="text" id="overridePhone" placeholder="{{ dealer_phone or 'e.g. (210) 555-1234' }}">
+                            </div>
+                            <div class="form-field">
+                                <label>Address</label>
+                                <input type="text" id="overrideAddress" placeholder="{{ dealer_address or 'e.g. 123 Main St, San Antonio, TX' }}">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label>Call-to-Action Text</label>
+                                <input type="text" id="overrideCTA" placeholder="e.g. Call Today!">
+                            </div>
+                            <div class="form-field"></div>
+                        </div>
+                    </div>
+
+                    <!-- Submit button -->
+                    <div style="text-align:center; margin: 24px 0;">
+                        <button class="btn primary lg" id="generateBtn" onclick="submitUpload()" disabled>
+                            Generate Video from Photos
+                        </button>
+                        <p style="color:var(--muted); font-size:0.8rem; margin-top:8px;">
+                            Estimated cost: ~$<span id="costEstimate">1.20</span> per video
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -442,9 +513,13 @@
             <div class="progress-section" id="progressSection">
                 <h2 style="margin-bottom:16px">Generating Your Video</h2>
                 <div class="progress-steps">
+                    <div class="progress-step pending" id="step-decoding" style="display:none">
+                        <div class="step-icon">1</div>
+                        <div class="step-text">Decoding VIN via NHTSA...</div>
+                    </div>
                     <div class="progress-step active" id="step-extracting">
                         <div class="step-icon"><div class="spinner-sm"></div></div>
-                        <div class="step-text">Analyzing images with Gemini AI...</div>
+                        <div class="step-text" id="step-extracting-text">Analyzing with Gemini AI...</div>
                     </div>
                     <div class="progress-step pending" id="step-generating">
                         <div class="step-icon">2</div>
@@ -597,6 +672,128 @@
                 document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
             });
         });
+
+        // ==================== MODE TOGGLE ====================
+        let currentMode = 'vin';
+        let decodedVinSpecs = null;
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('vinMode').style.display = mode === 'vin' ? 'block' : 'none';
+            document.getElementById('uploadMode').style.display = mode === 'upload' ? 'block' : 'none';
+            document.getElementById('modeVin').style.background = mode === 'vin' ? 'var(--accent)' : 'transparent';
+            document.getElementById('modeVin').style.color = mode === 'vin' ? 'white' : 'var(--muted)';
+            document.getElementById('modeUpload').style.background = mode === 'upload' ? 'var(--accent)' : 'transparent';
+            document.getElementById('modeUpload').style.color = mode === 'upload' ? 'white' : 'var(--muted)';
+        }
+
+        // ==================== VIN MODE ====================
+        function onVinInput(input) {
+            input.value = input.value.toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '');
+            const valid = input.value.length === 17;
+            document.getElementById('vinDecodeBtn').disabled = !valid;
+            // Reset specs if VIN changed
+            if (decodedVinSpecs && decodedVinSpecs.vin !== input.value) {
+                decodedVinSpecs = null;
+                document.getElementById('vinSpecs').style.display = 'none';
+                document.getElementById('vinGenerateBtn').disabled = true;
+            }
+        }
+
+        function updateVinGenerateBtn() {
+            document.getElementById('vinGenerateBtn').disabled = !decodedVinSpecs;
+        }
+
+        async function decodeVin() {
+            const vin = document.getElementById('vinInput').value.trim();
+            if (vin.length !== 17) return;
+
+            document.getElementById('vinDecodeBtn').disabled = true;
+            document.getElementById('vinDecodeBtn').textContent = 'Decoding...';
+
+            try {
+                const res = await fetch('/api/vin/decode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vin })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert(data.error || 'VIN decode failed');
+                    return;
+                }
+
+                decodedVinSpecs = data;
+                document.getElementById('vinVehicleName').textContent = data.vehicle_name || vin;
+
+                // Build specs display
+                const specsList = document.getElementById('vinSpecsList');
+                const specs = [
+                    ['Engine', data.engine],
+                    ['Transmission', data.transmission],
+                    ['Drivetrain', data.drivetrain],
+                    ['Body', data.body_style],
+                    ['Fuel', data.fuel_type],
+                    ['Doors', data.doors],
+                ];
+                specsList.innerHTML = specs
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => `<div><span style="color:var(--muted)">${k}:</span> ${v}</div>`)
+                    .join('');
+
+                document.getElementById('vinSpecs').style.display = 'block';
+                document.getElementById('vinGenerateBtn').disabled = false;
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            } finally {
+                document.getElementById('vinDecodeBtn').disabled = false;
+                document.getElementById('vinDecodeBtn').textContent = 'Decode';
+            }
+        }
+
+        async function submitVin() {
+            const vin = document.getElementById('vinInput').value.trim();
+            if (vin.length !== 17) return;
+
+            const priceRaw = document.getElementById('vinPrice').value.replace(/[^0-9.]/g, '');
+            const price = priceRaw ? parseFloat(priceRaw) : null;
+
+            const body = {
+                vin,
+                price,
+                dealer_phone: document.getElementById('vinPhone').value,
+                dealer_address: document.getElementById('vinAddress').value,
+                cta_text: document.getElementById('vinCTA').value,
+            };
+
+            // Switch to progress view with VIN-specific steps
+            document.getElementById('uploadForm').style.display = 'none';
+            document.getElementById('step-decoding').style.display = 'flex';
+            document.getElementById('step-extracting-text').textContent = 'Generating video script...';
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('errorSection').style.display = 'none';
+            document.getElementById('videoResult').classList.remove('active');
+
+            try {
+                const res = await fetch('/api/vin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showError(data.error || 'VIN processing failed');
+                    return;
+                }
+
+                currentJobId = data.job_id;
+                pollJob();
+            } catch (e) {
+                showError('Network error: ' + e.message);
+            }
+        }
 
         // ==================== FILE UPLOAD HANDLING ====================
         let photoFiles = [];
@@ -761,7 +958,22 @@
         }
 
         function updateProgressSteps(status) {
+            const decodingEl = document.getElementById('step-decoding');
+            const isVinMode = decodingEl.style.display !== 'none';
+
+            // Handle the decoding step for VIN mode
+            if (isVinMode) {
+                if (status === 'decoding') {
+                    decodingEl.className = 'progress-step active';
+                    decodingEl.querySelector('.step-icon').innerHTML = '<div class="spinner-sm"></div>';
+                } else {
+                    decodingEl.className = 'progress-step done';
+                    decodingEl.querySelector('.step-icon').innerHTML = '&#10003;';
+                }
+            }
+
             const steps = {
+                decoding: ['pending', 'pending', 'pending'],
                 extracting: ['active', 'pending', 'pending'],
                 generating: ['done', 'active', 'pending'],
                 compositing: ['done', 'done', 'active'],
@@ -781,7 +993,7 @@
                 } else if (classes[i] === 'done') {
                     iconEl.innerHTML = icons.done;
                 } else {
-                    iconEl.textContent = i + 1;
+                    iconEl.textContent = (isVinMode ? i + 2 : i + 1);
                 }
             });
         }
@@ -814,10 +1026,25 @@
             stickerFile = null;
             carfaxFile = null;
             currentJobId = null;
+            decodedVinSpecs = null;
 
             document.getElementById('photoPreview').innerHTML = '';
             document.getElementById('stickerPreview').innerHTML = '';
             document.getElementById('carfaxPreview').innerHTML = '';
+
+            // Reset VIN mode
+            document.getElementById('vinInput').value = '';
+            document.getElementById('vinPrice').value = '';
+            document.getElementById('vinCTA').value = '';
+            document.getElementById('vinPhone').value = '';
+            document.getElementById('vinAddress').value = '';
+            document.getElementById('vinSpecs').style.display = 'none';
+            document.getElementById('vinGenerateBtn').disabled = true;
+            document.getElementById('vinDecodeBtn').disabled = true;
+
+            // Reset progress
+            document.getElementById('step-decoding').style.display = 'none';
+            document.getElementById('step-extracting-text').textContent = 'Analyzing with Gemini AI...';
 
             document.getElementById('uploadForm').style.display = 'block';
             document.getElementById('progressSection').classList.remove('active');

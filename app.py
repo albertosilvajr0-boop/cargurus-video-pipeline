@@ -20,6 +20,8 @@ from flask import Flask, render_template, jsonify, request, send_from_directory
 
 from config import settings
 from scripts.multimodal_extractor import MultimodalExtractor
+from scripts.vin_script_generator import VINScriptGenerator
+from utils.vin_decoder import decode_vin, validate_vin
 from video_gen.veo_generator import VeoGenerator
 from video_gen.sora_generator import SoraGenerator
 from video_gen.overlay import VideoOverlayPipeline
@@ -138,6 +140,200 @@ def api_upload_vehicle():
     thread.start()
 
     return jsonify({"job_id": job_id, "upload_id": upload_id, "status": "processing"})
+
+
+@app.route("/api/vin", methods=["POST"])
+def api_vin_generate():
+    """
+    Generate a video from just a VIN number.
+
+    JSON body:
+      - vin: 17-character VIN (required)
+      - price: vehicle price (optional)
+      - dealer_phone: override phone (optional)
+      - dealer_address: override address (optional)
+      - cta_text: custom CTA text (optional)
+    """
+    data = request.get_json()
+    if not data or not data.get("vin"):
+        return jsonify({"error": "VIN is required"}), 400
+
+    raw_vin = data["vin"]
+    clean_vin = validate_vin(raw_vin)
+    if not clean_vin:
+        return jsonify({"error": f"Invalid VIN: {raw_vin}. Must be 17 alphanumeric characters (no I, O, Q)."}), 400
+
+    job_id = f"vin_{clean_vin}_{uuid.uuid4().hex[:6]}"
+
+    with _jobs_lock:
+        _active_jobs[job_id] = {
+            "status": "decoding",
+            "progress": f"Decoding VIN {clean_vin}...",
+            "vin": clean_vin,
+            "vehicle_id": None,
+            "started_at": datetime.now().isoformat(),
+        }
+
+    overrides = {
+        "price": data.get("price"),
+        "dealer_phone": data.get("dealer_phone", ""),
+        "dealer_address": data.get("dealer_address", ""),
+        "cta_text": data.get("cta_text", ""),
+    }
+
+    thread = threading.Thread(
+        target=_process_vin,
+        args=(job_id, clean_vin, overrides),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "vin": clean_vin, "status": "processing"})
+
+
+@app.route("/api/vin/decode", methods=["POST"])
+def api_vin_decode_only():
+    """Quick VIN decode — returns vehicle specs without generating a video."""
+    data = request.get_json()
+    if not data or not data.get("vin"):
+        return jsonify({"error": "VIN is required"}), 400
+
+    clean_vin = validate_vin(data["vin"])
+    if not clean_vin:
+        return jsonify({"error": "Invalid VIN"}), 400
+
+    specs = decode_vin(clean_vin)
+    if not specs:
+        return jsonify({"error": "Could not decode VIN"}), 422
+
+    return jsonify(specs)
+
+
+def _process_vin(job_id: str, vin: str, overrides: dict):
+    """Background worker: decode VIN → generate script → generate video → overlay → done."""
+    def update_job(**kwargs):
+        with _jobs_lock:
+            _active_jobs[job_id].update(kwargs)
+
+    try:
+        # --- Step 1: Decode VIN via NHTSA ---
+        update_job(status="decoding", progress=f"Decoding VIN {vin}...")
+        specs = decode_vin(vin)
+
+        if not specs:
+            update_job(status="error", progress="Could not decode VIN — check the number and try again")
+            return
+
+        vehicle_name = specs.get("vehicle_name", vin)
+        update_job(vehicle_name=vehicle_name, progress=f"Decoded: {vehicle_name}")
+
+        # --- Step 2: Generate video script ---
+        update_job(status="extracting", progress=f"Generating video script for {vehicle_name}...")
+        price = overrides.get("price")
+        generator = VINScriptGenerator()
+        result = generator.generate(specs, price=price)
+
+        if not result:
+            update_job(status="error", progress="Failed to generate video script")
+            return
+
+        script_info = result.get("script", {})
+
+        # Save vehicle to database
+        upload_id = f"vin_{vin}"
+        vehicle_data = {
+            "cargurus_id": upload_id,
+            "vin": vin,
+            "year": specs.get("year") or 0,
+            "make": specs.get("make", ""),
+            "model": specs.get("model", ""),
+            "trim": specs.get("trim", ""),
+            "price": price or 0,
+            "exterior_color": specs.get("exterior_color", ""),
+            "engine": specs.get("engine", ""),
+            "transmission": specs.get("transmission", ""),
+            "drivetrain": specs.get("drivetrain", ""),
+            "video_script": json.dumps(result),
+            "status": "script_generated",
+            "script_generated_at": datetime.now().isoformat(),
+        }
+        vehicle_id = upsert_vehicle(vehicle_data)
+        update_job(vehicle_id=vehicle_id)
+
+        # --- Step 3: Generate AI video clip ---
+        update_job(status="generating", progress=f"Generating video for {vehicle_name}...")
+
+        veo_prompt = script_info.get("veo_prompt", "")
+        if not veo_prompt:
+            update_job(status="error", progress="No video prompt generated")
+            return
+
+        clip_path = None
+        engine_used = "veo"
+
+        if settings.PRIMARY_VIDEO_ENGINE == "veo":
+            veo = VeoGenerator()
+            clip_path = asyncio.run(
+                veo.generate_clip(veo_prompt, None, upload_id)
+            )
+
+        if not clip_path:
+            update_job(progress=f"Trying Sora for {vehicle_name}...")
+            engine_used = "sora"
+            sora = SoraGenerator()
+            clip_path = asyncio.run(
+                sora.generate_clip(veo_prompt, None, upload_id)
+            )
+
+        if not clip_path:
+            update_job(status="error", progress="All video engines failed")
+            update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+            return
+
+        # --- Step 4: Overlay pipeline (no hero photo — text-only intro) ---
+        update_job(status="compositing", progress="Adding branding and overlays...")
+
+        overlay = VideoOverlayPipeline()
+        final_path = overlay.compose_final_video(
+            ai_clip_path=clip_path,
+            hero_photo_path=None,
+            vehicle_name=vehicle_name,
+            price=price,
+            output_name=upload_id,
+            dealer_phone=overrides.get("dealer_phone") or "",
+            dealer_address=overrides.get("dealer_address") or "",
+            dealer_logo_path=settings.DEALER_LOGO_PATH,
+            cta_text=overrides.get("cta_text") or "",
+            vehicle_specs=specs,
+        )
+
+        if not final_path:
+            update_job(status="error", progress="Overlay compositing failed")
+            update_vehicle_status(vehicle_id, "error", error_message="Overlay compositing failed")
+            return
+
+        # --- Done ---
+        cost_tracker = CostTracker()
+        update_vehicle_status(
+            vehicle_id,
+            "video_complete",
+            video_path=final_path,
+            video_engine=engine_used,
+            video_cost=cost_tracker.session_cost,
+            video_generated_at=datetime.now().isoformat(),
+        )
+
+        caption = script_info.get("caption", "")
+        update_job(
+            status="complete",
+            progress="Video ready!",
+            video_path=final_path,
+            video_filename=Path(final_path).name,
+            caption=caption,
+        )
+
+    except Exception as e:
+        update_job(status="error", progress=f"Pipeline error: {str(e)}")
 
 
 def _process_upload(

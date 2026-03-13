@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-CarGurus Vehicle Video Pipeline — Upload-First Workflow
-========================================================
-Users upload photos + window sticker + Carfax. The pipeline:
-  1. Gemini multimodal extracts vehicle details + generates video script
-  2. Veo/Sora generates a single cinematic 8-second clip
-  3. FFmpeg composites intro + clip + CTA outro with branding overlays
+CarGurus Vehicle Video Pipeline
+================================
+Two ways to generate branded dealership videos:
 
-Usage:
-    python main.py upload <photo1> <photo2> ... [--sticker FILE] [--carfax FILE]
-    python main.py status
+  VIN mode (fastest):
+    python main.py vin 1C4RJFAG5LC123456
+    python main.py vin 1C4RJFAG5LC123456 --price 42990
+
+  Upload mode (best quality):
+    python main.py upload photo1.jpg photo2.jpg --sticker sticker.jpg
+
+  Other:
+    python main.py status                    # Show pipeline stats
     python main.py serve                     # Start web dashboard
 """
 
@@ -30,7 +33,9 @@ from utils.database import (
     upsert_vehicle, update_vehicle_status,
 )
 from utils.cost_tracker import CostTracker
+from utils.vin_decoder import decode_vin, validate_vin
 from scripts.multimodal_extractor import MultimodalExtractor
+from scripts.vin_script_generator import VINScriptGenerator
 from video_gen.veo_generator import VeoGenerator
 from video_gen.sora_generator import SoraGenerator
 from video_gen.overlay import VideoOverlayPipeline
@@ -216,6 +221,149 @@ def upload(photos, sticker, carfax, quality, phone, address, cta):
         dealer_address=address or "",
         dealer_logo_path=settings.DEALER_LOGO_PATH,
         cta_text=cta or "",
+    )
+
+    if not final_path:
+        console.print("[red]Overlay compositing failed[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message="Overlay compositing failed")
+        return
+
+    cost_tracker = CostTracker()
+    update_vehicle_status(
+        vehicle_id,
+        "video_complete",
+        video_path=final_path,
+        video_engine=engine_used,
+        video_cost=cost_tracker.session_cost,
+        video_generated_at=datetime.now().isoformat(),
+    )
+
+    console.print(f"\n[bold green]Done! Final video: {final_path}[/bold green]")
+
+    caption = script_info.get("caption", "")
+    if caption:
+        console.print(f"\n[cyan]Social caption:[/cyan] {caption}")
+
+    print_status()
+
+
+@cli.command()
+@click.argument("vin_number")
+@click.option("--price", type=float, default=None, help="Vehicle sale price")
+@click.option("--quality", type=click.Choice(["fast", "standard", "pro"]), default=None)
+@click.option("--phone", default=None, help="Dealer phone number for overlay")
+@click.option("--address", default=None, help="Dealer address for overlay")
+@click.option("--cta", default=None, help="Call-to-action text")
+def vin(vin_number, price, quality, phone, address, cta):
+    """Generate a branded video from just a VIN number.
+
+    Example:
+        python main.py vin 1C4RJFAG5LC123456
+        python main.py vin 1C4RJFAG5LC123456 --price 42990
+    """
+    print_banner()
+    init_db()
+
+    if quality:
+        settings.VIDEO_QUALITY = quality
+
+    errors = settings.validate_config()
+    if errors:
+        for e in errors:
+            console.print(f"[red]Config error: {e}[/red]")
+        return
+
+    # Step 1: Decode VIN
+    console.print(f"\n[bold]Step 1: Decoding VIN...[/bold]")
+    clean_vin = validate_vin(vin_number)
+    if not clean_vin:
+        console.print(f"[red]Invalid VIN: {vin_number}[/red]")
+        return
+
+    specs = decode_vin(clean_vin)
+    if not specs:
+        console.print("[red]Could not decode VIN. Check the number and try again.[/red]")
+        return
+
+    vehicle_name = specs.get("vehicle_name", clean_vin)
+
+    # Step 2: Generate script from specs
+    console.print(f"\n[bold]Step 2: Generating video script for {vehicle_name}...[/bold]")
+    generator = VINScriptGenerator()
+    result = generator.generate(specs, price=price)
+
+    if not result:
+        console.print("[red]Failed to generate video script[/red]")
+        return
+
+    script_info = result.get("script", {})
+
+    # Save to database
+    upload_id = f"vin_{clean_vin}"
+    vehicle_data = {
+        "cargurus_id": upload_id,
+        "vin": clean_vin,
+        "year": specs.get("year") or 0,
+        "make": specs.get("make", ""),
+        "model": specs.get("model", ""),
+        "trim": specs.get("trim", ""),
+        "price": price or 0,
+        "engine": specs.get("engine", ""),
+        "transmission": specs.get("transmission", ""),
+        "drivetrain": specs.get("drivetrain", ""),
+        "video_script": json.dumps(result),
+        "status": "script_generated",
+        "script_generated_at": datetime.now().isoformat(),
+    }
+    vehicle_id = upsert_vehicle(vehicle_data)
+
+    # Step 3: Generate video clip
+    console.print(f"\n[bold]Step 3: Generating AI video clip...[/bold]")
+
+    veo_prompt = script_info.get("veo_prompt", "")
+    if not veo_prompt:
+        console.print("[red]No video prompt generated[/red]")
+        return
+
+    clip_path = None
+    engine_used = "veo"
+
+    async def generate():
+        nonlocal clip_path, engine_used
+
+        if settings.PRIMARY_VIDEO_ENGINE == "veo":
+            veo_gen = VeoGenerator()
+            clip_path = await veo_gen.generate_clip(veo_prompt, None, upload_id)
+
+        if not clip_path:
+            console.print("[yellow]Trying Sora fallback...[/yellow]")
+            engine_used = "sora"
+            sora_gen = SoraGenerator()
+            clip_path = await sora_gen.generate_clip(veo_prompt, None, upload_id)
+
+    update_vehicle_status(vehicle_id, "video_generating", video_engine=engine_used)
+    asyncio.run(generate())
+
+    if not clip_path:
+        console.print("[red]All video engines failed[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+        return
+
+    # Step 4: Overlay pipeline
+    console.print(f"\n[bold]Step 4: Adding branding and overlays...[/bold]")
+
+    overlay = VideoOverlayPipeline()
+    final_path = overlay.compose_final_video(
+        ai_clip_path=clip_path,
+        hero_photo_path=None,
+        vehicle_name=vehicle_name,
+        price=price,
+        output_name=upload_id,
+        dealer_phone=phone or "",
+        dealer_address=address or "",
+        dealer_logo_path=settings.DEALER_LOGO_PATH,
+        cta_text=cta or "",
+        vehicle_specs=specs,
     )
 
     if not final_path:

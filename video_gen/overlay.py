@@ -48,7 +48,7 @@ class VideoOverlayPipeline:
     def compose_final_video(
         self,
         ai_clip_path: str,
-        hero_photo_path: str,
+        hero_photo_path: str | None,
         vehicle_name: str,
         price: float | int | None,
         output_name: str,
@@ -56,6 +56,7 @@ class VideoOverlayPipeline:
         dealer_address: str = "",
         dealer_logo_path: str = "",
         cta_text: str = "",
+        vehicle_specs: dict | None = None,
     ) -> str | None:
         """
         Compose the final branded video.
@@ -64,7 +65,7 @@ class VideoOverlayPipeline:
 
         Args:
             ai_clip_path: Path to the AI-generated video clip
-            hero_photo_path: Path to the best exterior photo
+            hero_photo_path: Path to the best exterior photo (None for VIN-only mode)
             vehicle_name: e.g. "2024 Jeep Grand Cherokee Trailhawk"
             price: Vehicle price (or None to omit)
             output_name: Base filename for output
@@ -72,6 +73,7 @@ class VideoOverlayPipeline:
             dealer_address: Address to display
             dealer_logo_path: Path to dealer logo PNG
             cta_text: Call-to-action text
+            vehicle_specs: Optional dict of vehicle specs for text-only intro
 
         Returns:
             Path to final video, or None on failure
@@ -92,7 +94,8 @@ class VideoOverlayPipeline:
         try:
             # Step 1: Generate intro frame and convert to 2s video
             intro_frame = self._create_intro_frame(
-                hero_photo_path, vehicle_name, logo
+                hero_photo_path, vehicle_name, logo,
+                vehicle_specs=vehicle_specs,
             )
             if intro_frame:
                 self._image_to_video(intro_frame, str(intro_path), duration=2)
@@ -141,33 +144,81 @@ class VideoOverlayPipeline:
             return None
 
     def _create_intro_frame(
-        self, hero_photo_path: str, vehicle_name: str, logo_path: str
+        self, hero_photo_path: str | None, vehicle_name: str, logo_path: str,
+        vehicle_specs: dict | None = None,
     ) -> str | None:
-        """Create the intro frame: hero photo with vehicle name overlay."""
+        """Create the intro frame.
+
+        If hero_photo_path is provided: photo background with vehicle name overlay.
+        If no photo (VIN-only mode): branded dark background with specs.
+        """
         try:
-            img = Image.open(hero_photo_path).convert("RGBA")
-            img = self._fit_image(img)
+            if hero_photo_path and Path(hero_photo_path).exists():
+                # Photo-based intro
+                img = Image.open(hero_photo_path).convert("RGBA")
+                img = self._fit_image(img)
+            else:
+                # Text-only intro (VIN mode) — dark branded background
+                img = Image.new("RGBA", (self.width, self.height), (15, 17, 23, 255))
 
             draw = ImageDraw.Draw(img)
 
-            # Semi-transparent gradient at bottom
-            gradient = Image.new("RGBA", (self.width, self.height // 3), (0, 0, 0, 0))
-            grad_draw = ImageDraw.Draw(gradient)
-            for y in range(gradient.height):
-                alpha = int(200 * (y / gradient.height))
-                grad_draw.rectangle([(0, y), (self.width, y + 1)], fill=(0, 0, 0, alpha))
-            img.paste(gradient, (0, self.height - gradient.height), gradient)
+            if hero_photo_path and Path(hero_photo_path).exists():
+                # Semi-transparent gradient at bottom for photo readability
+                gradient = Image.new("RGBA", (self.width, self.height // 3), (0, 0, 0, 0))
+                grad_draw = ImageDraw.Draw(gradient)
+                for y in range(gradient.height):
+                    alpha = int(200 * (y / gradient.height))
+                    grad_draw.rectangle([(0, y), (self.width, y + 1)], fill=(0, 0, 0, alpha))
+                img.paste(gradient, (0, self.height - gradient.height), gradient)
 
-            # Vehicle name text at bottom
-            font = self._get_font(size=int(self.width * 0.055))
-            text_y = self.height - int(self.height * 0.12)
-            self._draw_centered_text(draw, vehicle_name, text_y, font, fill="white")
+                # Vehicle name text at bottom
+                font = self._get_font(size=int(self.width * 0.055))
+                text_y = self.height - int(self.height * 0.12)
+                self._draw_centered_text(draw, vehicle_name, text_y, font, fill="white")
+            else:
+                # Text-only layout: logo at top, vehicle name centered, specs below
+                y_cursor = int(self.height * 0.25)
 
-            # Dealer logo in top-left corner
-            if logo_path and Path(logo_path).exists():
-                self._paste_logo(img, logo_path, position="top-left")
+                if logo_path and Path(logo_path).exists():
+                    self._paste_logo(img, logo_path, position="center-top")
+                    y_cursor = int(self.height * 0.38)
 
-            frame_path = str(settings.VIDEOS_DIR / f"{Path(hero_photo_path).stem}_intro_frame.png")
+                # Vehicle name (large)
+                name_font = self._get_font(size=int(self.width * 0.065), bold=True)
+                self._draw_centered_text(draw, vehicle_name, y_cursor, name_font, fill="white")
+                y_cursor += int(self.height * 0.08)
+
+                # Specs lines
+                if vehicle_specs:
+                    spec_font = self._get_font(size=int(self.width * 0.04))
+                    spec_lines = []
+                    if vehicle_specs.get("engine"):
+                        spec_lines.append(vehicle_specs["engine"])
+                    if vehicle_specs.get("drivetrain"):
+                        spec_lines.append(vehicle_specs["drivetrain"])
+                    if vehicle_specs.get("body_style"):
+                        spec_lines.append(vehicle_specs["body_style"])
+                    for line in spec_lines[:3]:
+                        self._draw_centered_text(draw, line, y_cursor, spec_font, fill="#a1a1aa")
+                        y_cursor += int(self.height * 0.045)
+
+                # Decorative line
+                line_y = y_cursor + int(self.height * 0.02)
+                line_w = int(self.width * 0.3)
+                line_x = (self.width - line_w) // 2
+                draw.rectangle(
+                    [(line_x, line_y), (line_x + line_w, line_y + 2)],
+                    fill="#3b82f6",
+                )
+
+            # Dealer logo in corner (photo mode) or already placed (text mode)
+            if hero_photo_path and Path(hero_photo_path).exists():
+                if logo_path and Path(logo_path).exists():
+                    self._paste_logo(img, logo_path, position="top-left")
+
+            safe_name = vehicle_name.replace(" ", "_").replace("/", "_")[:30]
+            frame_path = str(settings.VIDEOS_DIR / f"{safe_name}_intro_frame.png")
             img.convert("RGB").save(frame_path, "PNG")
             return frame_path
 
