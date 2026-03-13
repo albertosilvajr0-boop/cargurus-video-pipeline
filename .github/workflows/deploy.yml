@@ -34,8 +34,8 @@ jobs:
             --cpu 2 \
             --timeout 300 \
             --min-instances 0 \
-            --max-instances 3 \
-            --set-env-vars "FLASK_DEBUG=0"
+            --max-instances 1 \
+            --update-env-vars "FLASK_DEBUG=0"
 
       - name: Deploy Firebase Hosting
         run: |
