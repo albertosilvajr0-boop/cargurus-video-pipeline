@@ -114,6 +114,7 @@ class MultimodalExtractor:
     def __init__(self):
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model_name = "gemini-2.5-flash"
+        self._last_error: str | None = None
 
     def extract_and_script(self, image_paths: list[str]) -> dict | None:
         """
@@ -153,9 +154,19 @@ class MultimodalExtractor:
         try:
             response = self._call_gemini(parts)
         except Exception as e:
-            console.print(f"[red]Gemini API error: {e}[/red]")
+            console.print(f"[red]Gemini API error: {type(e).__name__}: {e}[/red]")
+            self._last_error = f"Gemini API error: {type(e).__name__}: {e}"
             return None
-        return self._parse_response(response)
+
+        if response is None:
+            console.print("[red]Gemini returned empty response[/red]")
+            self._last_error = "Gemini returned empty response"
+            return None
+
+        parsed = self._parse_response(response)
+        if parsed is None:
+            self._last_error = getattr(self, "_last_error", "Failed to parse Gemini response")
+        return parsed
 
     @retry_sync(max_retries=3, base_delay=2.0, operation_name="Gemini multimodal extraction")
     def _call_gemini(self, parts: list):
@@ -165,17 +176,22 @@ class MultimodalExtractor:
             contents=types.Content(parts=parts),
             config=types.GenerateContentConfig(
                 temperature=0.7,
-                max_output_tokens=3000,
-                thinking_config=types.ThinkingConfig(thinking_budget=2048),
+                max_output_tokens=4096,
             ),
         )
 
     def _parse_response(self, response) -> dict | None:
         """Parse JSON from Gemini response."""
         try:
-            text = response.text.strip()
+            text = response.text
+            if not text:
+                console.print(f"[red]Gemini response text is empty. Candidates: {response.candidates}[/red]")
+                self._last_error = "Gemini returned empty text — possible safety block or thinking-only response"
+                return None
+            text = text.strip()
         except Exception as e:
             console.print(f"[red]Could not read Gemini response text: {e}[/red]")
+            self._last_error = f"Could not read response: {e}"
             return None
 
         # Strip markdown code fences
@@ -195,6 +211,7 @@ class MultimodalExtractor:
                 except json.JSONDecodeError:
                     pass
             console.print(f"[red]Failed to parse Gemini extraction response. First 500 chars: {text[:500]}[/red]")
+            self._last_error = f"JSON parse failed. Response starts with: {text[:200]}"
             return None
 
     def _get_mime_type(self, path: Path) -> str:

@@ -356,7 +356,8 @@ def _process_upload(
         result = extractor.extract_and_script(all_image_paths)
 
         if not result:
-            update_job(status="error", progress="Gemini extraction failed — could not analyze images")
+            detail = getattr(extractor, "_last_error", None) or "could not analyze images"
+            update_job(status="error", progress=f"Gemini extraction failed — {detail}")
             return
 
         vehicle_info = result.get("vehicle", {})
