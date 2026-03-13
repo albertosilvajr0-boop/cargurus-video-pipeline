@@ -166,7 +166,7 @@ class MultimodalExtractor:
             config=types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=3000,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                thinking_config=types.ThinkingConfig(thinking_budget=2048),
             ),
         )
 
