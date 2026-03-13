@@ -98,7 +98,6 @@ class VeoGenerator:
             image=image,
             config=types.GenerateVideosConfig(
                 aspect_ratio=settings.VIDEO_ASPECT_RATIO,
-                person_generation="allow_all",
             ),
         )
 

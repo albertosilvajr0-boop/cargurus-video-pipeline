@@ -3,7 +3,7 @@ httpx==0.28.1
 
 # AI APIs
 google-genai==1.5.0
-openai==1.59.5
+openai>=1.68.0
 
 # Video/image processing
 Pillow==10.4.0
