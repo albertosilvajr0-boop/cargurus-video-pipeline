@@ -270,6 +270,8 @@ def _process_vin(job_id: str, vin: str, overrides: dict):
 
         clip_path = None
         engine_used = "veo"
+        veo = None
+        sora = None
 
         if settings.PRIMARY_VIDEO_ENGINE == "veo":
             veo = VeoGenerator()
@@ -278,7 +280,8 @@ def _process_vin(job_id: str, vin: str, overrides: dict):
             )
 
         if not clip_path:
-            update_job(progress=f"Trying Sora for {vehicle_name}...")
+            veo_err = getattr(veo, "_last_error", None) if veo else "skipped"
+            update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
             engine_used = "sora"
             sora = SoraGenerator()
             clip_path = asyncio.run(
@@ -286,8 +289,11 @@ def _process_vin(job_id: str, vin: str, overrides: dict):
             )
 
         if not clip_path:
-            update_job(status="error", progress="All video engines failed")
-            update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+            veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"
+            sora_err = getattr(sora, "_last_error", None) if sora else "not attempted"
+            detail = f"Veo: {veo_err or 'unknown'}; Sora: {sora_err or 'unknown'}"
+            update_job(status="error", progress=f"All video engines failed — {detail}")
+            update_vehicle_status(vehicle_id, "error", error_message=f"All video engines failed — {detail}")
             return
 
         # --- Step 4: Overlay pipeline (no hero photo — text-only intro) ---
@@ -413,6 +419,8 @@ def _process_upload(
         # Try Veo first, fall back to Sora
         clip_path = None
         engine_used = "veo"
+        veo = None
+        sora = None
 
         if settings.PRIMARY_VIDEO_ENGINE == "veo":
             veo = VeoGenerator()
@@ -421,7 +429,8 @@ def _process_upload(
             )
 
         if not clip_path:
-            update_job(progress=f"Veo unavailable, trying Sora for {vehicle_name}...")
+            veo_err = getattr(veo, "_last_error", None) if veo else "skipped"
+            update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
             engine_used = "sora"
             sora = SoraGenerator()
             clip_path = asyncio.run(
@@ -429,8 +438,11 @@ def _process_upload(
             )
 
         if not clip_path:
-            update_job(status="error", progress="All video engines failed")
-            update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+            veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"
+            sora_err = getattr(sora, "_last_error", None) if sora else "not attempted"
+            detail = f"Veo: {veo_err or 'unknown'}; Sora: {sora_err or 'unknown'}"
+            update_job(status="error", progress=f"All video engines failed — {detail}")
+            update_vehicle_status(vehicle_id, "error", error_message=f"All video engines failed — {detail}")
             return
 
         # --- Step 3: Overlay pipeline ---
