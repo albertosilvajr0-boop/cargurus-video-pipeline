@@ -9,6 +9,7 @@ import asyncio
 import time
 from pathlib import Path
 
+import httpx
 from google import genai
 from google.genai import types
 from rich.console import Console
@@ -116,7 +117,19 @@ class VeoGenerator:
         if operation.result and operation.result.generated_videos:
             video = operation.result.generated_videos[0]
             output_path = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
-            video.video.save(str(output_path))
+
+            # Try local bytes first, fall back to downloading from URI
+            if video.video.video_bytes:
+                output_path.write_bytes(video.video.video_bytes)
+            elif video.video.uri:
+                async with httpx.AsyncClient(timeout=120) as client:
+                    resp = await client.get(video.video.uri)
+                    resp.raise_for_status()
+                    output_path.write_bytes(resp.content)
+            else:
+                self._last_error = "Veo returned video with no bytes or URI"
+                return None
+
             return str(output_path)
 
         self._last_error = "Veo operation completed but returned no video"
