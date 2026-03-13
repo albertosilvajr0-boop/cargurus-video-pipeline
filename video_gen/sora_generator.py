@@ -96,16 +96,14 @@ class SoraGenerator:
             "seconds": duration,
         }
 
-        # Add reference image if provided
+        # Add reference image if provided (upload first, then pass file_id)
+        uploaded_file = None
         if reference_image_path and Path(reference_image_path).exists():
-            ref_file = open(reference_image_path, "rb")
-            create_kwargs["input_reference"] = ref_file
+            with open(reference_image_path, "rb") as ref_fh:
+                uploaded_file = self.client.files.create(file=ref_fh, purpose="user_data")
+            create_kwargs["input_reference"] = {"file_id": uploaded_file.id}
 
-        try:
-            video_job = self.client.videos.create(**create_kwargs)
-        finally:
-            if "input_reference" in create_kwargs:
-                create_kwargs["input_reference"].close()
+        video_job = self.client.videos.create(**create_kwargs)
 
         console.print(f"[dim]Sora job created: {video_job.id} — polling for completion...[/dim]")
 
