@@ -150,7 +150,11 @@ class MultimodalExtractor:
 
         console.print(f"[cyan]Sending {len(parts) - 1} images to Gemini for analysis...[/cyan]")
 
-        response = self._call_gemini(parts)
+        try:
+            response = self._call_gemini(parts)
+        except Exception as e:
+            console.print(f"[red]Gemini API error: {e}[/red]")
+            return None
         return self._parse_response(response)
 
     @retry_sync(max_retries=3, base_delay=2.0, operation_name="Gemini multimodal extraction")
@@ -162,6 +166,7 @@ class MultimodalExtractor:
             config=types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=3000,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
 
