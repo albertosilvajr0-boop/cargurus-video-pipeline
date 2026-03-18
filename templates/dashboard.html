@@ -688,6 +688,8 @@
                     <thead>
                         <tr>
                             <th>Vehicle</th>
+                            <th>VIN</th>
+                            <th>Video Type</th>
                             <th>Price</th>
                             <th>Status</th>
                             <th>Cost</th>
@@ -701,6 +703,8 @@
                                 <strong>{{ v.year or '' }} {{ v.make or '' }} {{ v.model or '' }}</strong>
                                 {% if v.trim %}<br><span style="color:var(--muted);font-size:0.8rem">{{ v.trim }}</span>{% endif %}
                             </td>
+                            <td style="font-family:monospace;font-size:0.8rem">{{ v.vin or '&mdash;' }}</td>
+                            <td><span style="color:var(--cyan);font-size:0.8rem">{{ v.prompt_template_name or 'Default' }}</span></td>
                             <td>{% if v.price %}${{ "{:,.0f}".format(v.price) }}{% else %}&mdash;{% endif %}</td>
                             <td><span class="badge {{ v.status }}">{{ v.status | replace('_', ' ') }}</span></td>
                             <td>{% if v.video_cost %}${{ "%.2f"|format(v.video_cost) }}{% else %}&mdash;{% endif %}</td>
@@ -840,11 +844,15 @@
                     const rows = vehicles.map(v => {
                         const name = [v.year || '', v.make || '', v.model || ''].join(' ').trim();
                         const trim = v.trim ? `<br><span style="color:var(--muted);font-size:0.8rem">${v.trim}</span>` : '';
+                        const vin = v.vin || '&mdash;';
+                        const videoType = v.prompt_template_name || 'Default';
                         const price = v.price ? '$' + Number(v.price).toLocaleString() : '&mdash;';
                         const status = (v.status || '').replace(/_/g, ' ');
                         const cost = v.video_cost ? '$' + v.video_cost.toFixed(2) : '&mdash;';
                         return `<tr>
                             <td><strong>${name}</strong>${trim}</td>
+                            <td style="font-family:monospace;font-size:0.8rem">${vin}</td>
+                            <td><span style="color:var(--cyan);font-size:0.8rem">${videoType}</span></td>
                             <td>${price}</td>
                             <td><span class="badge ${v.status}">${status}</span></td>
                             <td>${cost}</td>
@@ -859,7 +867,7 @@
                         const wrapper = document.createElement('div');
                         wrapper.className = 'table-wrapper';
                         wrapper.innerHTML = `<table>
-                            <thead><tr><th>Vehicle</th><th>Price</th><th>Status</th><th>Cost</th><th></th></tr></thead>
+                            <thead><tr><th>Vehicle</th><th>VIN</th><th>Video Type</th><th>Price</th><th>Status</th><th>Cost</th><th></th></tr></thead>
                             <tbody>${rows}</tbody>
                         </table>`;
                         container.appendChild(wrapper);

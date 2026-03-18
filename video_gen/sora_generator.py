@@ -97,8 +97,9 @@ class SoraGenerator:
         }
 
         # Add reference image if provided (pass file path directly — SDK handles upload)
+        # input_reference expects a single object, not an array
         if reference_image_path and Path(reference_image_path).exists():
-            create_kwargs["input_reference"] = [Path(reference_image_path)]
+            create_kwargs["input_reference"] = Path(reference_image_path)
 
         video_job = self.client.videos.create(**create_kwargs)
 

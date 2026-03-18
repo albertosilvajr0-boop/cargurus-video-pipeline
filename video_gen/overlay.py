@@ -93,15 +93,21 @@ class VideoOverlayPipeline:
 
         try:
             # Step 1: Generate intro frame and convert to 2s video
-            intro_frame = self._create_intro_frame(
-                hero_photo_path, vehicle_name, logo,
-                vehicle_specs=vehicle_specs,
-            )
-            if intro_frame:
-                self._image_to_video(intro_frame, str(intro_path), duration=2)
-            else:
-                console.print("[yellow]Skipping intro — could not create frame[/yellow]")
+            # Skip photo-based intro — jump straight into AI clip.
+            # Only generate a text-based intro for VIN-only mode (no hero photo).
+            if hero_photo_path and Path(hero_photo_path).exists():
+                console.print("[dim]Skipping photo intro — jumping straight to AI clip[/dim]")
                 intro_path = None
+            else:
+                intro_frame = self._create_intro_frame(
+                    None, vehicle_name, logo,
+                    vehicle_specs=vehicle_specs,
+                )
+                if intro_frame:
+                    self._image_to_video(intro_frame, str(intro_path), duration=2)
+                else:
+                    console.print("[yellow]Skipping intro — could not create frame[/yellow]")
+                    intro_path = None
 
             # Step 2: Generate outro frame and convert to 5s video
             outro_frame = self._create_outro_frame(

@@ -52,6 +52,7 @@ def init_db():
             video_path TEXT,
             video_engine TEXT,  -- veo or sora
             video_cost REAL DEFAULT 0.0,
+            prompt_template_id INTEGER,  -- which prompt template was used
             
             -- Timestamps
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,7 +93,22 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS branding_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            dealer_name TEXT NOT NULL DEFAULT '',
+            dealer_phone TEXT NOT NULL DEFAULT '',
+            dealer_address TEXT NOT NULL DEFAULT '',
+            dealer_website TEXT NOT NULL DEFAULT '',
+            dealer_logo_path TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
+    # Migrate: add prompt_template_id column if missing (existing databases)
+    try:
+        conn.execute("SELECT prompt_template_id FROM vehicles LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN prompt_template_id INTEGER")
     conn.commit()
     conn.close()
 
@@ -163,9 +179,14 @@ def get_vehicles_by_status(status: str) -> list:
 
 
 def get_all_vehicles() -> list:
-    """Get all vehicles."""
+    """Get all vehicles with prompt template name."""
     conn = get_connection()
-    cursor = conn.execute("SELECT * FROM vehicles ORDER BY id")
+    cursor = conn.execute("""
+        SELECT v.*, pt.display_name AS prompt_template_name
+        FROM vehicles v
+        LEFT JOIN prompt_templates pt ON v.prompt_template_id = pt.id
+        ORDER BY v.id
+    """)
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
@@ -333,6 +354,39 @@ def delete_prompt_template(template_id: int) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+
+### Branding Settings (persistent across deployments) ###
+
+def save_branding_settings(dealer_name: str, dealer_phone: str, dealer_address: str,
+                           dealer_website: str, dealer_logo_path: str):
+    """Save branding settings to the database (upsert single row)."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO branding_settings (id, dealer_name, dealer_phone, dealer_address,
+           dealer_website, dealer_logo_path, updated_at)
+           VALUES (1, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             dealer_name=excluded.dealer_name,
+             dealer_phone=excluded.dealer_phone,
+             dealer_address=excluded.dealer_address,
+             dealer_website=excluded.dealer_website,
+             dealer_logo_path=excluded.dealer_logo_path,
+             updated_at=excluded.updated_at""",
+        (dealer_name, dealer_phone, dealer_address, dealer_website,
+         dealer_logo_path, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_branding_settings() -> dict | None:
+    """Load branding settings from the database. Returns None if not yet saved."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM branding_settings WHERE id = 1")
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def retry_vehicle_by_id(vehicle_id: int, target_status: str = "scraped") -> bool:

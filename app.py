@@ -31,6 +31,7 @@ from utils.database import (
     retry_failed_vehicles, retry_vehicle_by_id,
     seed_default_templates, get_all_prompt_templates, get_prompt_template,
     create_prompt_template, update_prompt_template, delete_prompt_template,
+    save_branding_settings, get_branding_settings,
 )
 from utils.cost_tracker import CostTracker
 
@@ -39,6 +40,20 @@ app = Flask(__name__)
 # Initialize database on startup
 init_db()
 seed_default_templates()
+
+# Restore branding from database (persists across deployments)
+_saved_branding = get_branding_settings()
+if _saved_branding:
+    if _saved_branding.get("dealer_name"):
+        settings.DEALER_NAME = _saved_branding["dealer_name"]
+    if _saved_branding.get("dealer_phone"):
+        settings.DEALER_PHONE = _saved_branding["dealer_phone"]
+    if _saved_branding.get("dealer_address"):
+        settings.DEALER_ADDRESS = _saved_branding["dealer_address"]
+    if _saved_branding.get("dealer_website"):
+        settings.DEALER_WEBSITE = _saved_branding["dealer_website"]
+    if _saved_branding.get("dealer_logo_path") and Path(_saved_branding["dealer_logo_path"]).exists():
+        settings.DEALER_LOGO_PATH = _saved_branding["dealer_logo_path"]
 
 # Track background jobs
 _jobs_lock = threading.Lock()
@@ -143,7 +158,7 @@ def api_upload_vehicle():
 
     thread = threading.Thread(
         target=_process_upload,
-        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template),
+        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id),
         daemon=True,
     )
     thread.start()
@@ -191,13 +206,14 @@ def api_vin_generate():
     }
 
     # Optional prompt template
+    vin_prompt_template_id = data.get("prompt_template_id")
     prompt_template = None
-    if data.get("prompt_template_id"):
-        prompt_template = get_prompt_template(int(data["prompt_template_id"]))
+    if vin_prompt_template_id:
+        prompt_template = get_prompt_template(int(vin_prompt_template_id))
 
     thread = threading.Thread(
         target=_process_vin,
-        args=(job_id, clean_vin, overrides, prompt_template),
+        args=(job_id, clean_vin, overrides, prompt_template, vin_prompt_template_id),
         daemon=True,
     )
     thread.start()
@@ -223,7 +239,7 @@ def api_vin_decode_only():
     return jsonify(specs)
 
 
-def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None):
+def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None, prompt_template_id: str | None = None):
     """Background worker: decode VIN → generate script → generate video → overlay → done."""
     def update_job(**kwargs):
         with _jobs_lock:
@@ -270,6 +286,7 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             "video_script": json.dumps(result),
             "status": "script_generated",
             "script_generated_at": datetime.now().isoformat(),
+            "prompt_template_id": int(prompt_template_id) if prompt_template_id else None,
         }
         vehicle_id = upsert_vehicle(vehicle_data)
         update_job(vehicle_id=vehicle_id)
@@ -364,6 +381,7 @@ def _process_upload(
     sticker_path: str | None,
     overrides: dict,
     prompt_template: dict | None = None,
+    prompt_template_id: str | None = None,
 ):
     """Background worker: extract → generate video → overlay → done."""
     def update_job(**kwargs):
@@ -412,6 +430,7 @@ def _process_upload(
             "video_script": json.dumps(result),
             "status": "script_generated",
             "script_generated_at": datetime.now().isoformat(),
+            "prompt_template_id": int(prompt_template_id) if prompt_template_id else None,
         }
         vehicle_id = upsert_vehicle(vehicle_data)
         update_job(vehicle_id=vehicle_id, vehicle_name=vehicle_name)
@@ -548,6 +567,15 @@ def api_save_branding():
         settings.DEALER_NAME = request.form["dealer_name"]
     if request.form.get("website"):
         settings.DEALER_WEBSITE = request.form["website"]
+
+    # Persist branding to database so it survives redeployments
+    save_branding_settings(
+        dealer_name=settings.DEALER_NAME,
+        dealer_phone=settings.DEALER_PHONE,
+        dealer_address=settings.DEALER_ADDRESS,
+        dealer_website=settings.DEALER_WEBSITE,
+        dealer_logo_path=settings.DEALER_LOGO_PATH,
+    )
 
     return jsonify({"status": "saved"})
 
