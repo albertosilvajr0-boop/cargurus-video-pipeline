@@ -91,42 +91,59 @@ class SoraGenerator:
         size = SORA_SIZES.get(settings.VIDEO_ASPECT_RATIO, "720x1280")
         duration = min(settings.CLIP_DURATION.get("sora", 8), 12)
 
-        # Build create kwargs
-        create_kwargs = {
+        # Build request payload
+        payload = {
             "model": "sora-2",
             "prompt": prompt,
             "size": size,
             "seconds": duration,
         }
 
-        # Add reference image if provided (as base64 data URL object)
-        if reference_image_path and Path(reference_image_path).exists():
+        # Add reference image if provided
+        has_reference = reference_image_path and Path(reference_image_path).exists()
+        if has_reference:
             ref_path = Path(reference_image_path)
-            # Resize image to match target video resolution
             target_w, target_h = (int(d) for d in size.split("x"))
             img = Image.open(ref_path).convert("RGB")
             img = img.resize((target_w, target_h), Image.LANCZOS)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
             b64 = base64.b64encode(buf.getvalue()).decode()
-            create_kwargs["input_reference"] = {
+            payload["input_reference"] = {
                 "image_url": f"data:image/jpeg;base64,{b64}"
             }
 
-        video_job = self.client.videos.create(**create_kwargs)
+        if has_reference:
+            # The Python SDK sends multipart/form-data which the API rejects
+            # for dict-typed input_reference. Use a direct JSON request instead.
+            resp = httpx.post(
+                "https://api.openai.com/v1/videos",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=60,
+            )
+            resp.raise_for_status()
+            job_data = resp.json()
+            job_id = job_data["id"]
+        else:
+            video_job = self.client.videos.create(**payload)
+            job_id = video_job.id
 
-        console.print(f"[dim]Sora job created: {video_job.id} — polling for completion...[/dim]")
+        console.print(f"[dim]Sora job created: {job_id} — polling for completion...[/dim]")
 
         max_wait = 300
         start = time.time()
 
         while time.time() - start < max_wait:
-            status = self.client.videos.retrieve(video_job.id)
+            status = self.client.videos.retrieve(job_id)
 
             if status.status == "completed":
                 # Download the video content
                 output_path = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
-                video_content = self.client.videos.content(video_job.id)
+                video_content = self.client.videos.content(job_id)
                 output_path.write_bytes(video_content.read())
                 return str(output_path)
 
