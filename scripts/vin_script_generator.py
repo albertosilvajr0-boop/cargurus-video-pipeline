@@ -135,13 +135,16 @@ class VINScriptGenerator:
             config=types.GenerateContentConfig(
                 temperature=0.9,
                 max_output_tokens=8192,
-                thinking_config=types.ThinkingConfig(thinking_budget=2048),
             ),
         )
 
     def _parse_response(self, response) -> dict | None:
         try:
-            text = response.text.strip()
+            text = response.text
+            if not text:
+                console.print(f"[red]Gemini response text is empty. Candidates: {response.candidates}[/red]")
+                return None
+            text = text.strip()
         except Exception as e:
             console.print(f"[red]Could not read Gemini response text: {e}[/red]")
             return None
