@@ -507,6 +507,17 @@ def _process_upload(
 
 # --- Job Status API ---
 
+@app.route("/api/jobs")
+def api_active_jobs():
+    """List all active (non-terminal) jobs."""
+    with _jobs_lock:
+        jobs = {
+            jid: dict(j, job_id=jid)
+            for jid, j in _active_jobs.items()
+        }
+    return jsonify(jobs)
+
+
 @app.route("/api/job/<job_id>")
 def api_job_status(job_id):
     """Poll for job progress."""
