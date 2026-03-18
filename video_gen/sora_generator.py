@@ -1,7 +1,6 @@
 """OpenAI Sora video generation.
 
-Simplified for the upload-first workflow: generates a single video clip
-as fallback when Veo fails or budget prefers Sora.
+Simplified for the upload-first workflow: generates a single video clip.
 """
 
 import asyncio
@@ -216,13 +215,20 @@ class SoraGenerator:
             )
 
             if status.status == "completed":
-                # Download the video content
+                # Download the video via the /content endpoint
                 output_path = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
-                video_content = self.client.videos.content(job_id)
-                output_path.write_bytes(video_content.read())
+                download_url = f"https://api.openai.com/v1/videos/{job_id}/content"
+                dl_resp = httpx.get(
+                    download_url,
+                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                    timeout=120,
+                    follow_redirects=True,
+                )
+                dl_resp.raise_for_status()
+                output_path.write_bytes(dl_resp.content)
                 logger.info(
-                    "Sora job %s completed in %.0fs — saved to %s",
-                    job_id, elapsed, output_path.name,
+                    "Sora job %s completed in %.0fs — saved to %s (%d bytes)",
+                    job_id, elapsed, output_path.name, len(dl_resp.content),
                 )
                 return str(output_path)
 

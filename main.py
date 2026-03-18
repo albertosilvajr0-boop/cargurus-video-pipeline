@@ -36,7 +36,6 @@ from utils.cost_tracker import CostTracker
 from utils.vin_decoder import decode_vin, validate_vin
 from scripts.multimodal_extractor import MultimodalExtractor
 from scripts.vin_script_generator import VINScriptGenerator
-from video_gen.veo_generator import VeoGenerator
 from video_gen.sora_generator import SoraGenerator
 from video_gen.overlay import VideoOverlayPipeline
 
@@ -183,28 +182,15 @@ def upload(photos, sticker, carfax, quality, phone, address, cta):
     best_idx = photo_analysis.get("best_exterior_index", 0)
     hero_photo = photo_paths[best_idx] if best_idx < len(photo_paths) else photo_paths[0]
 
-    clip_path = None
-    engine_used = "veo"
+    update_vehicle_status(vehicle_id, "video_generating", video_engine="sora")
 
-    async def generate():
-        nonlocal clip_path, engine_used
-
-        if settings.PRIMARY_VIDEO_ENGINE == "veo":
-            veo = VeoGenerator()
-            clip_path = await veo.generate_clip(veo_prompt, hero_photo, upload_id)
-
-        if not clip_path:
-            console.print("[yellow]Trying Sora fallback...[/yellow]")
-            engine_used = "sora"
-            sora = SoraGenerator()
-            clip_path = await sora.generate_clip(veo_prompt, hero_photo, upload_id)
-
-    update_vehicle_status(vehicle_id, "video_generating", video_engine=engine_used)
-    asyncio.run(generate())
+    sora = SoraGenerator()
+    clip_path = asyncio.run(sora.generate_clip(veo_prompt, hero_photo, upload_id))
 
     if not clip_path:
-        console.print("[red]All video engines failed[/red]")
-        update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+        sora_err = getattr(sora, "_last_error", None) or "unknown"
+        console.print(f"[red]Sora video generation failed: {sora_err}[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message=f"Sora failed: {sora_err}")
         return
 
     # Step 3: Overlay pipeline
@@ -233,7 +219,7 @@ def upload(photos, sticker, carfax, quality, phone, address, cta):
         vehicle_id,
         "video_complete",
         video_path=final_path,
-        video_engine=engine_used,
+        video_engine="sora",
         video_cost=cost_tracker.session_cost,
         video_generated_at=datetime.now().isoformat(),
     )
@@ -325,28 +311,15 @@ def vin(vin_number, price, quality, phone, address, cta):
         console.print("[red]No video prompt generated[/red]")
         return
 
-    clip_path = None
-    engine_used = "veo"
+    update_vehicle_status(vehicle_id, "video_generating", video_engine="sora")
 
-    async def generate():
-        nonlocal clip_path, engine_used
-
-        if settings.PRIMARY_VIDEO_ENGINE == "veo":
-            veo_gen = VeoGenerator()
-            clip_path = await veo_gen.generate_clip(veo_prompt, None, upload_id)
-
-        if not clip_path:
-            console.print("[yellow]Trying Sora fallback...[/yellow]")
-            engine_used = "sora"
-            sora_gen = SoraGenerator()
-            clip_path = await sora_gen.generate_clip(veo_prompt, None, upload_id)
-
-    update_vehicle_status(vehicle_id, "video_generating", video_engine=engine_used)
-    asyncio.run(generate())
+    sora_gen = SoraGenerator()
+    clip_path = asyncio.run(sora_gen.generate_clip(veo_prompt, None, upload_id))
 
     if not clip_path:
-        console.print("[red]All video engines failed[/red]")
-        update_vehicle_status(vehicle_id, "error", error_message="All video engines failed")
+        sora_err = getattr(sora_gen, "_last_error", None) or "unknown"
+        console.print(f"[red]Sora video generation failed: {sora_err}[/red]")
+        update_vehicle_status(vehicle_id, "error", error_message=f"Sora failed: {sora_err}")
         return
 
     # Step 4: Overlay pipeline
@@ -376,7 +349,7 @@ def vin(vin_number, price, quality, phone, address, cta):
         vehicle_id,
         "video_complete",
         video_path=final_path,
-        video_engine=engine_used,
+        video_engine="sora",
         video_cost=cost_tracker.session_cost,
         video_generated_at=datetime.now().isoformat(),
     )
