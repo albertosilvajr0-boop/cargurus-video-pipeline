@@ -5,11 +5,14 @@ as fallback when Veo fails or budget prefers Sora.
 """
 
 import asyncio
+import base64
+import io
 import time
 from pathlib import Path
 
 import httpx
 from openai import OpenAI
+from PIL import Image
 from rich.console import Console
 
 from config import settings
@@ -96,13 +99,19 @@ class SoraGenerator:
             "seconds": duration,
         }
 
-        # Add reference image if provided (as tuple with explicit media type)
+        # Add reference image if provided (as base64 data URL object)
         if reference_image_path and Path(reference_image_path).exists():
             ref_path = Path(reference_image_path)
-            suffix = ref_path.suffix.lower()
-            media_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-            media_type = media_types.get(suffix, "image/jpeg")
-            create_kwargs["input_reference"] = (ref_path.name, ref_path.read_bytes(), media_type)
+            # Resize image to match target video resolution
+            target_w, target_h = (int(d) for d in size.split("x"))
+            img = Image.open(ref_path).convert("RGB")
+            img = img.resize((target_w, target_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            create_kwargs["input_reference"] = {
+                "image_url": f"data:image/jpeg;base64,{b64}"
+            }
 
         video_job = self.client.videos.create(**create_kwargs)
 
