@@ -5,7 +5,6 @@ as fallback when Veo fails or budget prefers Sora.
 """
 
 import asyncio
-import base64
 import io
 import time
 from pathlib import Path
@@ -89,7 +88,10 @@ class SoraGenerator:
     ) -> str | None:
         """Generate clip with retry logic."""
         size = SORA_SIZES.get(settings.VIDEO_ASPECT_RATIO, "720x1280")
-        duration = min(settings.CLIP_DURATION.get("sora", 8), 12)
+        # Sora API only accepts seconds values of 4, 8, or 12
+        raw_duration = settings.CLIP_DURATION.get("sora", 8)
+        valid_durations = [4, 8, 12]
+        duration = min(d for d in valid_durations if d >= raw_duration) if raw_duration <= 12 else 12
 
         # Build request payload
         payload = {
@@ -108,21 +110,24 @@ class SoraGenerator:
             img = img.resize((target_w, target_h), Image.LANCZOS)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
-            b64 = base64.b64encode(buf.getvalue()).decode()
-            payload["input_reference"] = {
-                "image_url": f"data:image/jpeg;base64,{b64}"
-            }
+            image_bytes = buf.getvalue()
 
         if has_reference:
-            # The Python SDK sends multipart/form-data which the API rejects
-            # for dict-typed input_reference. Use a direct JSON request instead.
+            # Use multipart/form-data with the image file (matches Sora API spec)
             resp = httpx.post(
                 "https://api.openai.com/v1/videos",
                 headers={
                     "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
                 },
-                json=payload,
+                data={
+                    "model": "sora-2",
+                    "prompt": prompt,
+                    "size": size,
+                    "seconds": str(duration),
+                },
+                files={
+                    "input_reference": ("reference.jpg", image_bytes, "image/jpeg"),
+                },
                 timeout=60,
             )
             resp.raise_for_status()

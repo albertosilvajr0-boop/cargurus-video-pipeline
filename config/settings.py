@@ -61,10 +61,10 @@ COST_PER_SECOND = {
     },
 }
 
-# Veo generates 8s clips, Sora generates up to 10s
+# Veo generates 8s clips, Sora accepts 4, 8, or 12s
 CLIP_DURATION = {
     "veo": 8,
-    "sora": 10,
+    "sora": 12,
 }
 
 
