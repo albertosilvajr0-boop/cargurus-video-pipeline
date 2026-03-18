@@ -309,24 +309,36 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             return
 
         clip_path = None
-        engine_used = "veo"
+        engine_used = settings.PRIMARY_VIDEO_ENGINE or "veo"
         veo = None
         sora = None
 
-        if settings.PRIMARY_VIDEO_ENGINE == "veo":
+        if engine_used == "veo":
             veo = VeoGenerator()
             clip_path = asyncio.run(
                 veo.generate_clip(veo_prompt, None, upload_id)
             )
-
-        if not clip_path:
-            veo_err = getattr(veo, "_last_error", None) if veo else "skipped"
-            update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
-            engine_used = "sora"
+            if not clip_path:
+                veo_err = getattr(veo, "_last_error", None) or "unknown"
+                update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
+                engine_used = "sora"
+                sora = SoraGenerator()
+                clip_path = asyncio.run(
+                    sora.generate_clip(veo_prompt, None, upload_id)
+                )
+        else:
             sora = SoraGenerator()
             clip_path = asyncio.run(
                 sora.generate_clip(veo_prompt, None, upload_id)
             )
+            if not clip_path:
+                sora_err = getattr(sora, "_last_error", None) or "unknown"
+                update_job(progress=f"Sora failed ({sora_err}), trying Veo for {vehicle_name}...")
+                engine_used = "veo"
+                veo = VeoGenerator()
+                clip_path = asyncio.run(
+                    veo.generate_clip(veo_prompt, None, upload_id)
+                )
 
         if not clip_path:
             veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"
@@ -468,26 +480,38 @@ def _process_upload(
         else:
             hero_photo = photo_paths[0] if photo_paths else None
 
-        # Try Veo first, fall back to Sora
+        # Try primary engine first, fall back to the other
         clip_path = None
-        engine_used = "veo"
+        engine_used = settings.PRIMARY_VIDEO_ENGINE or "veo"
         veo = None
         sora = None
 
-        if settings.PRIMARY_VIDEO_ENGINE == "veo":
+        if engine_used == "veo":
             veo = VeoGenerator()
             clip_path = asyncio.run(
                 veo.generate_clip(veo_prompt, hero_photo, upload_id)
             )
-
-        if not clip_path:
-            veo_err = getattr(veo, "_last_error", None) if veo else "skipped"
-            update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
-            engine_used = "sora"
+            if not clip_path:
+                veo_err = getattr(veo, "_last_error", None) or "unknown"
+                update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
+                engine_used = "sora"
+                sora = SoraGenerator()
+                clip_path = asyncio.run(
+                    sora.generate_clip(veo_prompt, hero_photo, upload_id)
+                )
+        else:
             sora = SoraGenerator()
             clip_path = asyncio.run(
                 sora.generate_clip(veo_prompt, hero_photo, upload_id)
             )
+            if not clip_path:
+                sora_err = getattr(sora, "_last_error", None) or "unknown"
+                update_job(progress=f"Sora failed ({sora_err}), trying Veo for {vehicle_name}...")
+                engine_used = "veo"
+                veo = VeoGenerator()
+                clip_path = asyncio.run(
+                    veo.generate_clip(veo_prompt, hero_photo, upload_id)
+                )
 
         if not clip_path:
             veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"

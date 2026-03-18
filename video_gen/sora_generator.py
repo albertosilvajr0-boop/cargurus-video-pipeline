@@ -162,17 +162,26 @@ class SoraGenerator:
                 )
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
-                # Capture the response body — this is the key diagnostic info
                 response_body = e.response.text
                 logger.error(
                     "Sora HTTP %d error — URL: %s | Response body: %s",
                     e.response.status_code, str(e.request.url), response_body,
                 )
-                self._last_error = (
-                    f"Sora API HTTP {e.response.status_code}: {response_body[:300]}"
-                )
-                console.print(f"[red]Sora HTTP {e.response.status_code}: {response_body[:300]}[/red]")
-                raise
+                if e.response.status_code == 400:
+                    # 400 with image reference — retry without the image as text-to-video
+                    logger.warning(
+                        "Sora 400 with image reference — retrying as text-to-video (no image)"
+                    )
+                    console.print("[yellow]Sora image-to-video failed (400), retrying text-only...[/yellow]")
+                    has_reference = False  # fall through to SDK path below
+                else:
+                    self._last_error = (
+                        f"Sora API HTTP {e.response.status_code}: {response_body[:300]}"
+                    )
+                    console.print(f"[red]Sora HTTP {e.response.status_code}: {response_body[:300]}[/red]")
+                    raise
+
+        if has_reference:
             job_data = resp.json()
             job_id = job_data["id"]
             logger.info("Sora job created via HTTP: %s", job_id)
