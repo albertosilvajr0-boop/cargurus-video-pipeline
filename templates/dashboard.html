@@ -368,9 +368,96 @@
             .form-row { grid-template-columns: 1fr; }
             .video-actions { flex-direction: column; }
         }
+        /* Global Job Tracker */
+        .global-jobs-bar {
+            background: var(--surface2);
+            border-bottom: 1px solid var(--border);
+            display: none;
+        }
+        .global-jobs-bar.active { display: block; }
+        .global-jobs-bar .container { padding-top: 10px; padding-bottom: 10px; }
+        .job-tracker-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+        }
+        .job-tracker-item + .job-tracker-item {
+            border-top: 1px solid var(--border);
+        }
+        .job-tracker-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .job-tracker-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .job-tracker-status {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+        .job-progress-bar {
+            width: 160px;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .job-progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.4s ease;
+            background: var(--accent);
+        }
+        .job-progress-fill.complete { background: var(--green); }
+        .job-progress-fill.error { background: var(--red); }
+        .job-tracker-pct {
+            font-size: 0.75rem;
+            color: var(--muted);
+            width: 36px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .job-tracker-actions {
+            flex-shrink: 0;
+        }
+        .job-tracker-actions .btn {
+            padding: 3px 10px;
+            font-size: 0.75rem;
+        }
+        .jobs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .jobs-header-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
     </style>
 </head>
 <body>
+    <!-- Global Job Progress Bar -->
+    <div class="global-jobs-bar" id="globalJobsBar">
+        <div class="container">
+            <div class="jobs-header">
+                <span class="jobs-header-title">Video Generation Queue</span>
+                <button class="btn" style="padding:3px 10px;font-size:0.75rem" onclick="createAnotherVideo()">+ New Video</button>
+            </div>
+            <div id="globalJobsList"></div>
+        </div>
+    </div>
+
     <header>
         <div class="container">
             <h1>Vehicle Video Pipeline</h1>
@@ -902,6 +989,7 @@
                 }
 
                 currentJobId = data.job_id;
+                trackJob(data.job_id, { status: 'decoding', vehicle_name: decodedVinSpecs?.vehicle_name || vin, vin });
                 pollJob();
             } catch (e) {
                 showError('Network error: ' + e.message);
@@ -1036,6 +1124,7 @@
                 }
 
                 currentJobId = data.job_id;
+                trackJob(data.job_id, { status: 'extracting', vehicle_name: 'Photo Upload' });
                 pollJob();
             } catch (e) {
                 showError('Network error: ' + e.message);
@@ -1178,6 +1267,160 @@
                 hint.textContent = 'Copied!';
                 setTimeout(() => { hint.textContent = 'Click to copy caption to clipboard'; }, 2000);
             });
+        }
+
+        // ==================== GLOBAL JOB TRACKER ====================
+        let trackedJobs = {};  // job_id -> last known state
+        let globalPollInterval = null;
+
+        function getJobProgress(status) {
+            const map = { decoding: 10, extracting: 30, generating: 60, compositing: 85, complete: 100, error: 100 };
+            return map[status] || 5;
+        }
+
+        function getJobLabel(job) {
+            return job.vehicle_name || job.vin || job.upload_id || job.job_id || 'Video';
+        }
+
+        function renderGlobalJobs() {
+            const bar = document.getElementById('globalJobsBar');
+            const list = document.getElementById('globalJobsList');
+            const jobIds = Object.keys(trackedJobs);
+
+            if (jobIds.length === 0) {
+                bar.classList.remove('active');
+                return;
+            }
+
+            bar.classList.add('active');
+            list.innerHTML = jobIds.map(jid => {
+                const job = trackedJobs[jid];
+                const pct = getJobProgress(job.status);
+                const label = getJobLabel(job);
+                const statusText = job.progress || job.status.replace(/_/g, ' ');
+                const fillClass = job.status === 'complete' ? 'complete' : job.status === 'error' ? 'error' : '';
+                const actions = job.status === 'complete'
+                    ? `<a class="btn" href="/videos/${job.video_filename}" download style="padding:3px 10px;font-size:0.75rem">Download</a>`
+                    : job.status === 'error'
+                    ? `<button class="btn" style="padding:3px 10px;font-size:0.75rem;color:var(--red)" onclick="dismissJob('${jid}')">Dismiss</button>`
+                    : `<div class="spinner-sm"></div>`;
+
+                return `<div class="job-tracker-item" data-job-id="${jid}">
+                    <div class="job-tracker-info">
+                        <div class="job-tracker-name">${label}</div>
+                        <div class="job-tracker-status">${statusText}</div>
+                    </div>
+                    <div class="job-progress-bar">
+                        <div class="job-progress-fill ${fillClass}" style="width:${pct}%"></div>
+                    </div>
+                    <div class="job-tracker-pct">${pct}%</div>
+                    <div class="job-tracker-actions">${actions}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function dismissJob(jobId) {
+            delete trackedJobs[jobId];
+            saveTrackedJobs();
+            renderGlobalJobs();
+        }
+
+        function saveTrackedJobs() {
+            try { localStorage.setItem('vp_trackedJobs', JSON.stringify(trackedJobs)); } catch(e) {}
+        }
+
+        function loadTrackedJobs() {
+            try {
+                const saved = localStorage.getItem('vp_trackedJobs');
+                if (saved) trackedJobs = JSON.parse(saved);
+            } catch(e) {}
+        }
+
+        async function pollGlobalJobs() {
+            // Collect job IDs that are still in-progress
+            const activeIds = Object.keys(trackedJobs).filter(
+                jid => !['complete', 'error'].includes(trackedJobs[jid].status)
+            );
+
+            if (activeIds.length === 0) {
+                // Clean up completed/error jobs older than 10 minutes
+                const now = Date.now();
+                for (const jid of Object.keys(trackedJobs)) {
+                    const j = trackedJobs[jid];
+                    if (['complete', 'error'].includes(j.status) && j._doneAt && now - j._doneAt > 600000) {
+                        delete trackedJobs[jid];
+                    }
+                }
+                saveTrackedJobs();
+                renderGlobalJobs();
+                return;
+            }
+
+            // Poll each active job
+            for (const jid of activeIds) {
+                try {
+                    const res = await fetch(`/api/job/${jid}`);
+                    if (res.status === 404) {
+                        trackedJobs[jid].status = 'error';
+                        trackedJobs[jid].progress = 'Job not found (server may have restarted)';
+                        trackedJobs[jid]._doneAt = Date.now();
+                        continue;
+                    }
+                    const job = await res.json();
+                    trackedJobs[jid] = { ...trackedJobs[jid], ...job };
+
+                    if (['complete', 'error'].includes(job.status)) {
+                        trackedJobs[jid]._doneAt = Date.now();
+                        // If this was the current in-tab job, update the in-tab view too
+                        if (jid === currentJobId) {
+                            if (job.status === 'complete') showVideoResult(job);
+                            else showError(job.progress || 'Unknown error');
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            saveTrackedJobs();
+            renderGlobalJobs();
+        }
+
+        function startGlobalPoll() {
+            if (globalPollInterval) return;
+            globalPollInterval = setInterval(pollGlobalJobs, 2500);
+            pollGlobalJobs();
+        }
+
+        function trackJob(jobId, initialData) {
+            trackedJobs[jobId] = { ...initialData, job_id: jobId };
+            saveTrackedJobs();
+            renderGlobalJobs();
+            startGlobalPoll();
+        }
+
+        function createAnotherVideo() {
+            // Navigate to Create Video tab and reset the form
+            switchToTab('upload');
+            // Show the upload form even if a result/progress is showing
+            document.getElementById('uploadForm').style.display = 'block';
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('videoResult').classList.remove('active');
+            document.getElementById('errorSection').style.display = 'none';
+            // Clear form for new entry
+            photoFiles = [];
+            stickerFile = null;
+            carfaxFile = null;
+            decodedVinSpecs = null;
+            document.getElementById('photoPreview').innerHTML = '';
+            document.getElementById('stickerPreview').innerHTML = '';
+            document.getElementById('carfaxPreview').innerHTML = '';
+            document.getElementById('vinInput').value = '';
+            document.getElementById('vinPrice').value = '';
+            document.getElementById('vinCTA').value = '';
+            document.getElementById('vinSpecs').style.display = 'none';
+            document.getElementById('vinGenerateBtn').disabled = true;
+            document.getElementById('vinDecodeBtn').disabled = true;
+            document.getElementById('step-decoding').style.display = 'none';
+            updateGenerateBtn();
         }
 
         // ==================== PROMPT TEMPLATES ====================
@@ -1414,6 +1657,14 @@
                 if (savedTab && savedTab !== 'upload') {
                     switchToTab(savedTab);
                 }
+
+                // Restore tracked jobs and resume polling
+                loadTrackedJobs();
+                renderGlobalJobs();
+                const hasActive = Object.values(trackedJobs).some(
+                    j => !['complete', 'error'].includes(j.status)
+                );
+                if (hasActive) startGlobalPoll();
             } catch(e) {
                 console.error('Failed to restore state:', e);
             }
