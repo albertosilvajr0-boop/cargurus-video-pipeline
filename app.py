@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import threading
+import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,9 @@ from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_from_directory
 
 from config import settings
+from utils.logger import get_logger
+
+logger = get_logger("app")
 from scripts.multimodal_extractor import MultimodalExtractor
 from scripts.vin_script_generator import VINScriptGenerator
 from utils.vin_decoder import decode_vin, validate_vin
@@ -40,6 +44,7 @@ app = Flask(__name__)
 # Initialize database on startup
 init_db()
 seed_default_templates()
+logger.info("Application starting — PRIMARY_VIDEO_ENGINE=%s", settings.PRIMARY_VIDEO_ENGINE)
 
 # Restore branding from database (persists across deployments)
 _saved_branding = get_branding_settings()
@@ -241,9 +246,13 @@ def api_vin_decode_only():
 
 def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None, prompt_template_id: str | None = None):
     """Background worker: decode VIN → generate script → generate video → overlay → done."""
+    logger.info("=== VIN pipeline started — job=%s, vin=%s ===", job_id, vin)
+
     def update_job(**kwargs):
         with _jobs_lock:
             _active_jobs[job_id].update(kwargs)
+        if "status" in kwargs:
+            logger.info("Job %s status -> %s: %s", job_id, kwargs.get("status"), kwargs.get("progress", ""))
 
     try:
         # --- Step 1: Decode VIN via NHTSA ---
@@ -370,6 +379,8 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
         )
 
     except Exception as e:
+        logger.error("VIN pipeline uncaught exception (job=%s): %s: %s", job_id, type(e).__name__, e)
+        logger.debug("VIN pipeline traceback:\n%s", traceback.format_exc())
         update_job(status="error", progress=f"Pipeline error: {str(e)}")
 
 
@@ -384,9 +395,16 @@ def _process_upload(
     prompt_template_id: str | None = None,
 ):
     """Background worker: extract → generate video → overlay → done."""
+    logger.info(
+        "=== Upload pipeline started — job=%s, upload=%s, images=%d ===",
+        job_id, upload_id, len(all_image_paths),
+    )
+
     def update_job(**kwargs):
         with _jobs_lock:
             _active_jobs[job_id].update(kwargs)
+        if "status" in kwargs:
+            logger.info("Job %s status -> %s: %s", job_id, kwargs.get("status"), kwargs.get("progress", ""))
 
     try:
         # --- Step 1: Gemini multimodal extraction ---
@@ -521,6 +539,8 @@ def _process_upload(
         )
 
     except Exception as e:
+        logger.error("Upload pipeline uncaught exception (job=%s): %s: %s", job_id, type(e).__name__, e)
+        logger.debug("Upload pipeline traceback:\n%s", traceback.format_exc())
         update_job(status="error", progress=f"Pipeline error: {str(e)}")
 
 
@@ -697,6 +717,33 @@ def serve_photo(filename):
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     return send_from_directory(str(settings.UPLOADS_DIR), filename)
+
+
+@app.route("/api/logs")
+def api_recent_logs():
+    """Return the most recent log entries for debugging.
+
+    Query params:
+      - lines: number of lines to return (default 100, max 500)
+      - level: minimum level filter (DEBUG, INFO, WARNING, ERROR)
+    """
+    from utils.logger import LOG_FILE
+
+    max_lines = min(int(request.args.get("lines", 100)), 500)
+    level_filter = request.args.get("level", "").upper()
+
+    if not LOG_FILE.exists():
+        return jsonify({"lines": [], "message": "No log file yet"})
+
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        all_lines = f.readlines()
+
+    # Filter by level if requested
+    if level_filter:
+        all_lines = [l for l in all_lines if f"| {level_filter}" in l]
+
+    recent = all_lines[-max_lines:]
+    return jsonify({"lines": [l.rstrip() for l in recent], "total": len(all_lines)})
 
 
 @app.route("/health")
