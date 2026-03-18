@@ -122,8 +122,12 @@ class VeoGenerator:
             if video.video.video_bytes:
                 output_path.write_bytes(video.video.video_bytes)
             elif video.video.uri:
+                # The URI requires authentication — append the API key
+                uri = video.video.uri
+                separator = "&" if "?" in uri else "?"
+                authed_uri = f"{uri}{separator}key={settings.GOOGLE_API_KEY}"
                 async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-                    resp = await client.get(video.video.uri)
+                    resp = await client.get(authed_uri)
                     resp.raise_for_status()
                     output_path.write_bytes(resp.content)
             else:

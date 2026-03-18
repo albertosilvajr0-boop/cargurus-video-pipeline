@@ -96,12 +96,9 @@ class SoraGenerator:
             "seconds": duration,
         }
 
-        # Add reference image if provided (upload first, then pass file_id)
-        uploaded_file = None
+        # Add reference image if provided (pass file path directly — SDK handles upload)
         if reference_image_path and Path(reference_image_path).exists():
-            with open(reference_image_path, "rb") as ref_fh:
-                uploaded_file = self.client.files.create(file=ref_fh, purpose="user_data")
-            create_kwargs["input_reference"] = {"file_id": uploaded_file.id}
+            create_kwargs["input_reference"] = [Path(reference_image_path)]
 
         video_job = self.client.videos.create(**create_kwargs)
 
