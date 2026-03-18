@@ -138,11 +138,25 @@ class VeoGenerator:
 
         logger.info("Veo operation started — polling for completion...")
         console.print("[dim]Waiting for Veo generation...[/dim]")
+        max_wait = 900  # 15-minute safety limit
         start = time.time()
         poll_count = 0
 
         while not operation.done:
             elapsed = time.time() - start
+
+            if elapsed >= max_wait:
+                self._last_error = (
+                    f"Veo job still processing after {elapsed:.0f}s "
+                    f"({poll_count} polls) — giving up"
+                )
+                logger.error(
+                    "Veo timeout — elapsed=%.0fs polls=%d operation=%s",
+                    elapsed, poll_count, operation,
+                )
+                console.print(f"[red]{self._last_error}[/red]")
+                return None
+
             # Progressive polling: 5s early, 10s mid, 15s late
             if elapsed < 120:
                 poll_interval = 5
@@ -152,7 +166,18 @@ class VeoGenerator:
                 poll_interval = 15
             await asyncio.sleep(poll_interval)
             poll_count += 1
-            operation = self.client.operations.get(operation)
+
+            try:
+                operation = self.client.operations.get(operation)
+            except Exception as e:
+                self._last_error = f"Veo polling error: {type(e).__name__}: {e}"
+                logger.error(
+                    "Veo poll #%d failed — elapsed=%.0fs error=%s: %s",
+                    poll_count, elapsed, type(e).__name__, e,
+                )
+                console.print(f"[red]{self._last_error}[/red]")
+                return None
+
             logger.debug("Veo poll #%d (%.0fs elapsed) — done=%s", poll_count, elapsed, operation.done)
 
         elapsed = time.time() - start

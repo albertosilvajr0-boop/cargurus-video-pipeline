@@ -201,20 +201,39 @@ class SoraGenerator:
 
         console.print(f"[dim]Sora job created: {job_id} — polling for completion...[/dim]")
 
+        max_wait = 900  # 15-minute safety limit
         start = time.time()
         poll_count = 0
+        last_status = None
 
         while True:
             poll_count += 1
-            status = self.client.videos.retrieve(job_id)
             elapsed = time.time() - start
-            logger.debug(
-                "Sora poll #%d (%.0fs elapsed) — job=%s status=%s",
-                poll_count, elapsed, job_id, status.status,
-            )
+
+            try:
+                status = self.client.videos.retrieve(job_id)
+            except Exception as e:
+                logger.error(
+                    "Sora poll #%d failed — job=%s elapsed=%.0fs error=%s: %s",
+                    poll_count, job_id, elapsed, type(e).__name__, e,
+                )
+                self._last_error = f"Sora polling error: {type(e).__name__}: {e}"
+                console.print(f"[red]{self._last_error}[/red]")
+                return None
+
+            if status.status != last_status:
+                logger.info(
+                    "Sora job %s status changed: %s -> %s (poll #%d, %.0fs elapsed)",
+                    job_id, last_status, status.status, poll_count, elapsed,
+                )
+                last_status = status.status
+            else:
+                logger.debug(
+                    "Sora poll #%d (%.0fs elapsed) — job=%s status=%s",
+                    poll_count, elapsed, job_id, status.status,
+                )
 
             if status.status == "completed":
-                # Download the video via the /content endpoint
                 output_path = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
                 download_url = f"https://api.openai.com/v1/videos/{job_id}/content"
                 dl_resp = httpx.get(
@@ -226,8 +245,8 @@ class SoraGenerator:
                 dl_resp.raise_for_status()
                 output_path.write_bytes(dl_resp.content)
                 logger.info(
-                    "Sora job %s completed in %.0fs — saved to %s (%d bytes)",
-                    job_id, elapsed, output_path.name, len(dl_resp.content),
+                    "Sora job %s completed in %.0fs (%d polls) — saved to %s (%d bytes)",
+                    job_id, elapsed, poll_count, output_path.name, len(dl_resp.content),
                 )
                 return str(output_path)
 
@@ -235,8 +254,20 @@ class SoraGenerator:
                 error_detail = getattr(status, "error", "unknown")
                 self._last_error = f"Sora job failed: {error_detail}"
                 logger.error(
-                    "Sora job %s failed after %.0fs — error: %s | full status: %s",
-                    job_id, elapsed, error_detail, status,
+                    "Sora job %s failed after %.0fs (%d polls) — error: %s | full status: %s",
+                    job_id, elapsed, poll_count, error_detail, status,
+                )
+                console.print(f"[red]{self._last_error}[/red]")
+                return None
+
+            if elapsed >= max_wait:
+                self._last_error = (
+                    f"Sora job {job_id} still '{status.status}' after {elapsed:.0f}s "
+                    f"({poll_count} polls) — giving up"
+                )
+                logger.error(
+                    "Sora timeout — job=%s status=%s elapsed=%.0fs polls=%d last_status_obj=%s",
+                    job_id, status.status, elapsed, poll_count, status,
                 )
                 console.print(f"[red]{self._last_error}[/red]")
                 return None
