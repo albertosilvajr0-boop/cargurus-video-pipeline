@@ -201,7 +201,7 @@ class SoraGenerator:
 
         console.print(f"[dim]Sora job created: {job_id} — polling for completion...[/dim]")
 
-        max_wait = 300
+        max_wait = 600  # 10 minutes — 20s Sora 2 clips can take 5-8 min
         start = time.time()
         poll_count = 0
 
@@ -242,9 +242,16 @@ class SoraGenerator:
                 console.print(f"[red]{self._last_error}[/red]")
                 return None
 
-            await asyncio.sleep(10)
+            # Progressive polling: 5s for first 2 min, 10s for 2-5 min, 15s after
+            if elapsed < 120:
+                poll_interval = 5
+            elif elapsed < 300:
+                poll_interval = 10
+            else:
+                poll_interval = 15
+            await asyncio.sleep(poll_interval)
 
-        self._last_error = "Sora timed out after 5 min"
+        self._last_error = "Sora timed out after 10 min"
         logger.error("Sora job %s timed out after %d polls (%.0fs)", job_id, poll_count, time.time() - start)
         console.print(f"[red]{self._last_error}[/red]")
         return None

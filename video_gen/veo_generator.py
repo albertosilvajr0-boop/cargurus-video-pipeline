@@ -138,18 +138,25 @@ class VeoGenerator:
 
         logger.info("Veo operation started — polling for completion...")
         console.print("[dim]Waiting for Veo generation...[/dim]")
-        max_wait = 300
+        max_wait = 600  # 10 minutes for longer clip durations
         start = time.time()
         poll_count = 0
 
         while not operation.done:
             elapsed = time.time() - start
             if elapsed > max_wait:
-                self._last_error = "Veo generation timed out (5 min)"
+                self._last_error = "Veo generation timed out (10 min)"
                 logger.error("Veo timed out after %d polls (%.0fs)", poll_count, elapsed)
                 console.print(f"[red]{self._last_error}[/red]")
                 return None
-            await asyncio.sleep(10)
+            # Progressive polling: 5s early, 10s mid, 15s late
+            if elapsed < 120:
+                poll_interval = 5
+            elif elapsed < 300:
+                poll_interval = 10
+            else:
+                poll_interval = 15
+            await asyncio.sleep(poll_interval)
             poll_count += 1
             operation = self.client.operations.get(operation)
             logger.debug("Veo poll #%d (%.0fs elapsed) — done=%s", poll_count, elapsed, operation.done)
