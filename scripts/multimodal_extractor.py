@@ -8,6 +8,7 @@ scrape → download → script pipeline.
 
 import json
 import re
+import traceback
 from pathlib import Path
 
 from google import genai
@@ -15,9 +16,11 @@ from google.genai import types
 from rich.console import Console
 
 from config import settings
+from utils.logger import get_logger
 from utils.retry import retry_sync
 
 console = Console()
+logger = get_logger("extractor")
 
 EXTRACTION_PROMPT = """You are an expert automotive analyst and video scriptwriter.
 
@@ -115,6 +118,7 @@ class MultimodalExtractor:
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model_name = "gemini-2.5-flash"
         self._last_error: str | None = None
+        logger.info("MultimodalExtractor initialized (model=%s)", self.model_name)
 
     def extract_and_script(self, image_paths: list[str], prompt_template: dict | None = None) -> dict | None:
         """
@@ -128,6 +132,7 @@ class MultimodalExtractor:
             Parsed JSON dict with vehicle details and script, or None on failure
         """
         if not image_paths:
+            logger.warning("extract_and_script called with no image paths")
             console.print("[red]No images provided[/red]")
             return None
 
@@ -143,6 +148,7 @@ class MultimodalExtractor:
             parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime))
 
         if not parts:
+            logger.warning("No valid image files found from paths: %s", image_paths)
             console.print("[red]No valid image files found[/red]")
             return None
 
@@ -161,23 +167,39 @@ class MultimodalExtractor:
 
         parts.append(types.Part.from_text(text=prompt_text))
 
-        console.print(f"[cyan]Sending {len(parts) - 1} images to Gemini for analysis...[/cyan]")
+        num_images = len(parts) - 1  # exclude the text prompt part added below
+        logger.info(
+            "Sending %d images to Gemini for extraction (template=%s)",
+            len(parts), bool(prompt_template),
+        )
+        console.print(f"[cyan]Sending {num_images} images to Gemini for analysis...[/cyan]")
 
         try:
             response = self._call_gemini(parts)
         except Exception as e:
+            logger.error("Gemini API call failed: %s: %s", type(e).__name__, e)
+            logger.debug("Gemini traceback:\n%s", traceback.format_exc())
             console.print(f"[red]Gemini API error: {type(e).__name__}: {e}[/red]")
             self._last_error = f"Gemini API error: {type(e).__name__}: {e}"
             return None
 
         if response is None:
+            logger.error("Gemini returned None response")
             console.print("[red]Gemini returned empty response[/red]")
             self._last_error = "Gemini returned empty response"
             return None
 
+        logger.debug("Gemini response received — parsing JSON...")
         parsed = self._parse_response(response)
         if parsed is None:
             self._last_error = getattr(self, "_last_error", "Failed to parse Gemini response")
+            logger.error("Gemini response parse failed: %s", self._last_error)
+        else:
+            vehicle = parsed.get("vehicle", {})
+            logger.info(
+                "Gemini extraction successful — vehicle: %s %s %s",
+                vehicle.get("year", "?"), vehicle.get("make", "?"), vehicle.get("model", "?"),
+            )
         return parsed
 
     @retry_sync(max_retries=3, base_delay=2.0, operation_name="Gemini multimodal extraction")

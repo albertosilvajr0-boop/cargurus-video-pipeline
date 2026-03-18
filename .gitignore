@@ -30,6 +30,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Logs
+logs/
+
 # Temp files
 *.tmp
 _concat_list.txt

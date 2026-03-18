@@ -7,6 +7,7 @@ as fallback when Veo fails or budget prefers Sora.
 import asyncio
 import io
 import time
+import traceback
 from pathlib import Path
 
 import httpx
@@ -16,9 +17,11 @@ from rich.console import Console
 
 from config import settings
 from utils.cost_tracker import CostTracker
+from utils.logger import get_logger
 from utils.retry import retry_async
 
 console = Console()
+logger = get_logger("sora")
 
 # Map aspect ratio setting to Sora size format (width x height)
 SORA_SIZES = {
@@ -35,6 +38,7 @@ class SoraGenerator:
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.cost_tracker = CostTracker()
         self._last_error: str | None = None
+        logger.info("SoraGenerator initialized (quality=%s)", self.quality)
 
     async def generate_clip(
         self, prompt: str, reference_image_path: str | None, output_name: str
@@ -52,9 +56,17 @@ class SoraGenerator:
         """
         if not self.cost_tracker.can_afford("sora", self.quality):
             self._last_error = f"Budget exceeded (remaining: ${self.cost_tracker.remaining_budget:.2f})"
+            logger.warning("Sora budget check failed: %s", self._last_error)
             console.print(f"[yellow]Sora: {self._last_error}[/yellow]")
             return None
 
+        logger.info(
+            "Sora generate_clip starting — output=%s, has_reference=%s, prompt_length=%d",
+            output_name,
+            bool(reference_image_path and Path(reference_image_path).exists()),
+            len(prompt),
+        )
+        logger.debug("Sora prompt: %s", prompt[:500])
         console.print("[cyan]Generating Sora clip...[/cyan]")
 
         try:
@@ -71,14 +83,18 @@ class SoraGenerator:
                     cost=cost,
                     call_type="video_generation",
                 )
+                logger.info("Sora clip saved: %s (cost=$%.4f)", Path(clip_path).name, cost)
                 console.print(f"[green]Sora clip saved: {Path(clip_path).name}[/green]")
             else:
                 self._last_error = self._last_error or "Sora returned no video"
+                logger.warning("Sora returned no clip: %s", self._last_error)
 
             return clip_path
 
         except Exception as e:
             self._last_error = f"Sora API error: {type(e).__name__}: {e}"
+            logger.error("Sora generate_clip failed: %s", self._last_error)
+            logger.debug("Sora traceback:\n%s", traceback.format_exc())
             console.print(f"[red]{self._last_error}[/red]")
             return None
 
@@ -101,64 +117,119 @@ class SoraGenerator:
             "seconds": duration,
         }
 
+        logger.info(
+            "Sora API request — model=%s, size=%s, duration=%ds, has_image=%s",
+            payload["model"], size, duration,
+            bool(reference_image_path and Path(reference_image_path).exists()),
+        )
+
         # Add reference image if provided
         has_reference = reference_image_path and Path(reference_image_path).exists()
         if has_reference:
             ref_path = Path(reference_image_path)
             target_w, target_h = (int(d) for d in size.split("x"))
             img = Image.open(ref_path).convert("RGB")
+            original_size = img.size
             img = img.resize((target_w, target_h), Image.LANCZOS)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
             image_bytes = buf.getvalue()
+            logger.debug(
+                "Reference image prepared: %s (%dx%d -> %dx%d, %d bytes JPEG)",
+                ref_path.name, original_size[0], original_size[1],
+                target_w, target_h, len(image_bytes),
+            )
 
         if has_reference:
             # Use multipart/form-data with the image file (matches Sora API spec)
-            resp = httpx.post(
-                "https://api.openai.com/v1/videos",
-                headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                },
-                data={
-                    "model": "sora-2",
-                    "prompt": prompt,
-                    "size": size,
-                    "seconds": str(duration),
-                },
-                files={
-                    "input_reference": ("reference.jpg", image_bytes, "image/jpeg"),
-                },
-                timeout=60,
-            )
-            resp.raise_for_status()
+            logger.debug("Sending multipart POST to https://api.openai.com/v1/videos")
+            try:
+                resp = httpx.post(
+                    "https://api.openai.com/v1/videos",
+                    headers={
+                        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    },
+                    data={
+                        "model": "sora-2",
+                        "prompt": prompt,
+                        "size": size,
+                        "seconds": str(duration),
+                    },
+                    files={
+                        "input_reference": ("reference.jpg", image_bytes, "image/jpeg"),
+                    },
+                    timeout=60,
+                )
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                # Capture the response body — this is the key diagnostic info
+                response_body = e.response.text
+                logger.error(
+                    "Sora HTTP %d error — URL: %s | Response body: %s",
+                    e.response.status_code, str(e.request.url), response_body,
+                )
+                self._last_error = (
+                    f"Sora API HTTP {e.response.status_code}: {response_body[:300]}"
+                )
+                console.print(f"[red]Sora HTTP {e.response.status_code}: {response_body[:300]}[/red]")
+                raise
             job_data = resp.json()
             job_id = job_data["id"]
+            logger.info("Sora job created via HTTP: %s", job_id)
         else:
-            video_job = self.client.videos.create(**payload)
-            job_id = video_job.id
+            try:
+                video_job = self.client.videos.create(**payload)
+                job_id = video_job.id
+                logger.info("Sora job created via SDK: %s", job_id)
+            except Exception as e:
+                # Log the full exception details for SDK errors too
+                logger.error(
+                    "Sora SDK create failed: %s: %s",
+                    type(e).__name__, e,
+                )
+                if hasattr(e, "response") and e.response is not None:
+                    logger.error("Sora SDK response body: %s", e.response.text[:500])
+                raise
 
         console.print(f"[dim]Sora job created: {job_id} — polling for completion...[/dim]")
 
         max_wait = 300
         start = time.time()
+        poll_count = 0
 
         while time.time() - start < max_wait:
+            poll_count += 1
             status = self.client.videos.retrieve(job_id)
+            elapsed = time.time() - start
+            logger.debug(
+                "Sora poll #%d (%.0fs elapsed) — job=%s status=%s",
+                poll_count, elapsed, job_id, status.status,
+            )
 
             if status.status == "completed":
                 # Download the video content
                 output_path = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
                 video_content = self.client.videos.content(job_id)
                 output_path.write_bytes(video_content.read())
+                logger.info(
+                    "Sora job %s completed in %.0fs — saved to %s",
+                    job_id, elapsed, output_path.name,
+                )
                 return str(output_path)
 
             if status.status == "failed":
-                self._last_error = f"Sora job failed: {getattr(status, 'error', 'unknown')}"
+                error_detail = getattr(status, "error", "unknown")
+                self._last_error = f"Sora job failed: {error_detail}"
+                logger.error(
+                    "Sora job %s failed after %.0fs — error: %s | full status: %s",
+                    job_id, elapsed, error_detail, status,
+                )
                 console.print(f"[red]{self._last_error}[/red]")
                 return None
 
             await asyncio.sleep(10)
 
         self._last_error = "Sora timed out after 5 min"
+        logger.error("Sora job %s timed out after %d polls (%.0fs)", job_id, poll_count, time.time() - start)
         console.print(f"[red]{self._last_error}[/red]")
         return None

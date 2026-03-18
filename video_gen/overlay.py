@@ -11,14 +11,17 @@ No external services needed.
 
 import shutil
 import subprocess
+import traceback
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from rich.console import Console
 
 from config import settings
+from utils.logger import get_logger
 
 console = Console()
+logger = get_logger("overlay")
 
 # Video dimensions for 9:16 vertical
 DIMENSIONS = {
@@ -78,7 +81,13 @@ class VideoOverlayPipeline:
         Returns:
             Path to final video, or None on failure
         """
+        logger.info(
+            "Overlay compose starting — clip=%s, hero=%s, vehicle=%s",
+            ai_clip_path, hero_photo_path, vehicle_name,
+        )
+
         if not Path(ai_clip_path).exists():
+            logger.error("AI clip file not found: %s", ai_clip_path)
             console.print(f"[red]AI clip not found: {ai_clip_path}[/red]")
             return None
 
@@ -142,10 +151,15 @@ class VideoOverlayPipeline:
                 frame_file.unlink(missing_ok=True)
 
             if result:
+                logger.info("Final video composed: %s", final_path.name)
                 console.print(f"[bold green]Final video: {final_path.name}[/bold green]")
+            else:
+                logger.error("Overlay concat failed — no output produced")
             return result
 
         except Exception as e:
+            logger.error("Overlay pipeline error: %s: %s", type(e).__name__, e)
+            logger.debug("Overlay traceback:\n%s", traceback.format_exc())
             console.print(f"[red]Overlay pipeline error: {e}[/red]")
             return None
 
@@ -396,7 +410,10 @@ class VideoOverlayPipeline:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
+            logger.warning("FFmpeg image-to-video returned %d: %s", result.returncode, result.stderr[:500])
             console.print(f"[yellow]Image-to-video warning: {result.stderr[:200]}[/yellow]")
+        else:
+            logger.debug("FFmpeg image-to-video OK: %s -> %s", image_path, output_path)
 
     def _normalize_clip(self, input_path: str, output_path: str):
         """Normalize AI clip to match our dimensions, fps, and codec."""
@@ -416,7 +433,10 @@ class VideoOverlayPipeline:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
+            logger.warning("FFmpeg normalize returned %d: %s", result.returncode, result.stderr[:500])
             console.print(f"[yellow]Normalize warning: {result.stderr[:200]}[/yellow]")
+        else:
+            logger.debug("FFmpeg normalize OK: %s -> %s", input_path, output_path)
 
     def _concat_with_fades(self, segment_paths: list[str], output_path: str) -> str | None:
         """Concatenate video segments with crossfade transitions."""
@@ -457,7 +477,9 @@ class VideoOverlayPipeline:
         concat_file.unlink(missing_ok=True)
 
         if result.returncode == 0:
+            logger.info("FFmpeg concat OK: %d segments -> %s", len(segment_paths), output_path)
             return output_path
         else:
+            logger.error("FFmpeg concat failed (rc=%d): %s", result.returncode, result.stderr[:500])
             console.print(f"[red]Concat failed: {result.stderr[:300]}[/red]")
             return None

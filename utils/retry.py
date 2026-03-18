@@ -2,12 +2,14 @@
 
 import asyncio
 import functools
+import logging
 import time
 from typing import Callable
 
 from rich.console import Console
 
 console = Console()
+logger = logging.getLogger("pipeline.retry")
 
 # Default retry configuration
 DEFAULT_MAX_RETRIES = 3
@@ -86,9 +88,17 @@ def retry_sync(
                     last_exc = e
 
                     if attempt >= max_retries or not check(e):
+                        logger.error(
+                            "Retry exhausted for %s — attempt %d/%d, not retryable=%s: %s",
+                            name, attempt + 1, max_retries, not check(e), e,
+                        )
                         raise
 
                     delay = min(base_delay * (backoff_factor ** attempt), max_delay)
+                    logger.warning(
+                        "Retry %d/%d for %s (waiting %.1fs): %s: %s",
+                        attempt + 1, max_retries, name, delay, type(e).__name__, e,
+                    )
                     console.print(
                         f"[yellow]  Retry {attempt + 1}/{max_retries} for {name} "
                         f"(waiting {delay:.1f}s): {e}[/yellow]"
@@ -126,9 +136,17 @@ def retry_async(
                     last_exc = e
 
                     if attempt >= max_retries or not check(e):
+                        logger.error(
+                            "Async retry exhausted for %s — attempt %d/%d, not retryable=%s: %s",
+                            name, attempt + 1, max_retries, not check(e), e,
+                        )
                         raise
 
                     delay = min(base_delay * (backoff_factor ** attempt), max_delay)
+                    logger.warning(
+                        "Async retry %d/%d for %s (waiting %.1fs): %s: %s",
+                        attempt + 1, max_retries, name, delay, type(e).__name__, e,
+                    )
                     console.print(
                         f"[yellow]  Retry {attempt + 1}/{max_retries} for {name} "
                         f"(waiting {delay:.1f}s): {e}[/yellow]"
