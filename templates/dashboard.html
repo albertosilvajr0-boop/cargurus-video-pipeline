@@ -257,6 +257,83 @@
         .caption-box:hover { background: var(--surface2); }
         .caption-box .caption-hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 
+        /* Video Trimmer */
+        .trimmer-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .trimmer-section h3 { font-size: 0.95rem; margin-bottom: 12px; }
+        .trim-timeline {
+            position: relative;
+            height: 48px;
+            background: var(--surface2);
+            border-radius: 8px;
+            margin: 12px 0;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        .trim-selection {
+            position: absolute;
+            top: 0; bottom: 0;
+            background: rgba(59, 130, 246, 0.25);
+            border-left: 3px solid var(--accent);
+            border-right: 3px solid var(--accent);
+            pointer-events: none;
+        }
+        .trim-playhead {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 2px;
+            background: var(--green);
+            pointer-events: none;
+            z-index: 2;
+        }
+        .trim-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .trim-controls label {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .trim-controls input[type="number"] {
+            width: 80px;
+            padding: 6px 8px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+        .trim-controls .time-display {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--cyan);
+            min-width: 60px;
+        }
+        .trim-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .trim-actions .btn { font-size: 0.85rem; padding: 8px 16px; }
+        .trim-result {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid var(--green);
+            border-radius: 8px;
+            display: none;
+        }
+        .trim-result.active { display: block; }
+        .trim-result a { color: var(--green); }
+
         /* Stats Grid */
         .stats-grid {
             display: grid;
@@ -654,6 +731,33 @@
                 <div class="caption-box" id="captionBox" onclick="copyCaption()">
                     <div id="captionText"></div>
                     <div class="caption-hint">Click to copy caption to clipboard</div>
+                </div>
+
+                <!-- Video Trimmer -->
+                <div class="trimmer-section" id="trimmerSection">
+                    <h3>Trim &amp; Cut Video</h3>
+                    <div class="trim-timeline" id="trimTimeline">
+                        <div class="trim-selection" id="trimSelection"></div>
+                        <div class="trim-playhead" id="trimPlayhead"></div>
+                    </div>
+                    <div class="trim-controls">
+                        <label>Start (s):
+                            <input type="number" id="trimStart" value="0" min="0" step="0.1">
+                        </label>
+                        <label>End (s):
+                            <input type="number" id="trimEnd" value="0" min="0" step="0.1">
+                        </label>
+                        <span class="time-display" id="trimDuration">Duration: 0.0s</span>
+                    </div>
+                    <div class="trim-actions">
+                        <button class="btn" onclick="previewTrim()">Preview Selection</button>
+                        <button class="btn primary" onclick="saveTrimmedVideo()">Save Trimmed Video</button>
+                        <button class="btn" onclick="resetTrim()">Reset</button>
+                    </div>
+                    <div class="trim-result" id="trimResult">
+                        <strong>Trimmed video saved!</strong>
+                        <a id="trimDownloadLink" href="#" download>Download trimmed video</a>
+                    </div>
                 </div>
             </div>
 
@@ -1212,6 +1316,10 @@
             });
         }
 
+        // --- Current video filename for trimmer ---
+        let currentVideoFilename = null;
+        let trimVideoDuration = 0;
+
         function showVideoResult(job) {
             document.getElementById('progressSection').classList.remove('active');
             document.getElementById('videoResult').classList.add('active');
@@ -1227,6 +1335,123 @@
             } else {
                 document.getElementById('captionBox').style.display = 'none';
             }
+
+            // Initialize trimmer
+            currentVideoFilename = job.video_filename;
+            initTrimmer();
+        }
+
+        // --- Video Trimmer ---
+        function initTrimmer() {
+            const video = document.getElementById('resultVideo');
+            const trimResult = document.getElementById('trimResult');
+            trimResult.classList.remove('active');
+
+            video.addEventListener('loadedmetadata', function onMeta() {
+                trimVideoDuration = video.duration;
+                document.getElementById('trimStart').value = '0';
+                document.getElementById('trimEnd').value = trimVideoDuration.toFixed(1);
+                document.getElementById('trimEnd').max = trimVideoDuration.toFixed(1);
+                document.getElementById('trimStart').max = trimVideoDuration.toFixed(1);
+                updateTrimUI();
+                video.removeEventListener('loadedmetadata', onMeta);
+            });
+
+            // Update playhead as video plays
+            video.addEventListener('timeupdate', function() {
+                if (trimVideoDuration <= 0) return;
+                const pct = (video.currentTime / trimVideoDuration) * 100;
+                document.getElementById('trimPlayhead').style.left = pct + '%';
+            });
+
+            // Click on timeline to seek
+            document.getElementById('trimTimeline').addEventListener('click', function(e) {
+                const rect = this.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                const time = pct * trimVideoDuration;
+                video.currentTime = time;
+            });
+
+            // Input changes update the selection display
+            document.getElementById('trimStart').addEventListener('input', updateTrimUI);
+            document.getElementById('trimEnd').addEventListener('input', updateTrimUI);
+        }
+
+        function updateTrimUI() {
+            if (trimVideoDuration <= 0) return;
+            const start = parseFloat(document.getElementById('trimStart').value) || 0;
+            const end = parseFloat(document.getElementById('trimEnd').value) || trimVideoDuration;
+            const sel = document.getElementById('trimSelection');
+            sel.style.left = ((start / trimVideoDuration) * 100) + '%';
+            sel.style.width = (((end - start) / trimVideoDuration) * 100) + '%';
+            const dur = Math.max(0, end - start);
+            document.getElementById('trimDuration').textContent = `Duration: ${dur.toFixed(1)}s`;
+        }
+
+        function previewTrim() {
+            const video = document.getElementById('resultVideo');
+            const start = parseFloat(document.getElementById('trimStart').value) || 0;
+            const end = parseFloat(document.getElementById('trimEnd').value) || trimVideoDuration;
+            video.currentTime = start;
+            video.play();
+            // Pause at end time
+            const checkEnd = setInterval(() => {
+                if (video.currentTime >= end) {
+                    video.pause();
+                    clearInterval(checkEnd);
+                }
+            }, 100);
+        }
+
+        async function saveTrimmedVideo() {
+            if (!currentVideoFilename) return;
+            const start = parseFloat(document.getElementById('trimStart').value) || 0;
+            const end = parseFloat(document.getElementById('trimEnd').value) || trimVideoDuration;
+
+            if (end <= start) {
+                alert('End time must be after start time');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Trimming...';
+
+            try {
+                const res = await fetch('/api/trim', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: currentVideoFilename,
+                        start: start,
+                        end: end,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert('Trim failed: ' + (data.error || 'Unknown error'));
+                    return;
+                }
+
+                const trimResult = document.getElementById('trimResult');
+                const trimLink = document.getElementById('trimDownloadLink');
+                trimLink.href = data.trimmed_url;
+                trimLink.download = data.trimmed_filename;
+                trimLink.textContent = `Download trimmed video (${data.duration}s)`;
+                trimResult.classList.add('active');
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save Trimmed Video';
+            }
+        }
+
+        function resetTrim() {
+            document.getElementById('trimStart').value = '0';
+            document.getElementById('trimEnd').value = trimVideoDuration.toFixed(1);
+            document.getElementById('trimResult').classList.remove('active');
+            updateTrimUI();
         }
 
         function showError(message) {
@@ -1655,6 +1880,9 @@
                         } else {
                             document.getElementById('captionBox').style.display = 'none';
                         }
+                        // Init trimmer for restored video
+                        currentVideoFilename = video.video_filename;
+                        initTrimmer();
                     } else {
                         localStorage.removeItem(STORAGE_KEYS.lastVideo);
                     }

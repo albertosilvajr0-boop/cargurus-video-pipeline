@@ -683,6 +683,64 @@ def serve_upload(filename):
     return send_from_directory(str(settings.UPLOADS_DIR), filename)
 
 
+@app.route("/api/trim", methods=["POST"])
+def api_trim_video():
+    """
+    Trim a video to a new start/end time and save as a new file.
+
+    JSON body:
+      - filename: the video filename (in the videos directory)
+      - start: start time in seconds (float)
+      - end: end time in seconds (float)
+    """
+    import subprocess
+
+    data = request.get_json()
+    if not data or not data.get("filename"):
+        return jsonify({"error": "filename is required"}), 400
+
+    filename = Path(data["filename"]).name  # sanitize to just the filename
+    source_path = settings.VIDEOS_DIR / filename
+    if not source_path.exists():
+        return jsonify({"error": "Video file not found"}), 404
+
+    start = float(data.get("start", 0))
+    end = float(data.get("end", 0))
+    if end <= start:
+        return jsonify({"error": "end must be greater than start"}), 400
+
+    # Generate trimmed filename
+    stem = source_path.stem
+    trimmed_name = f"{stem}_trimmed_{int(start*10):04d}_{int(end*10):04d}.mp4"
+    trimmed_path = settings.VIDEOS_DIR / trimmed_name
+
+    duration = end - start
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start),
+        "-i", str(source_path),
+        "-t", str(duration),
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-preset", "fast",
+        "-crf", "23",
+        str(trimmed_path),
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        logger.error("FFmpeg trim failed: %s", result.stderr[:500])
+        return jsonify({"error": "Trim failed", "detail": result.stderr[:300]}), 500
+
+    logger.info("Video trimmed: %s -> %s (%.1fs-%.1fs)", filename, trimmed_name, start, end)
+    return jsonify({
+        "status": "ok",
+        "trimmed_filename": trimmed_name,
+        "trimmed_url": f"/videos/{trimmed_name}",
+        "duration": round(duration, 2),
+    })
+
+
 @app.route("/api/logs")
 def api_recent_logs():
     """Return the most recent log entries for debugging.

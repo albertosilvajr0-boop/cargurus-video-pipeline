@@ -2,7 +2,7 @@
 
 Composites the final video from:
   1. Branded intro (2s) — static hero photo with dealer logo + vehicle name
-  2. AI-generated clip (8s) — from Veo or Sora
+  2. AI-generated clip (20s) — from Sora 2
   3. CTA outro (5s) — price, phone number, address, call-to-action
 
 All overlays are burned in using FFmpeg filters (drawtext, overlay, drawbox).
@@ -64,7 +64,7 @@ class VideoOverlayPipeline:
         """
         Compose the final branded video.
 
-        Structure: [2s intro] + [8s AI clip] + [5s CTA outro] = 15s
+        Structure: [2s intro] + [20s AI clip] + [5s CTA outro] = 25s
 
         Args:
             ai_clip_path: Path to the AI-generated video clip
