@@ -39,7 +39,7 @@ COST_LIMIT = float(os.getenv("COST_LIMIT", "50.0"))
 PRIMARY_VIDEO_ENGINE = "sora"
 VIDEO_ASPECT_RATIO = os.getenv("VIDEO_ASPECT_RATIO", "9:16")
 VIDEO_RESOLUTION = os.getenv("VIDEO_RESOLUTION", "720p")
-TARGET_VIDEO_DURATION = 15  # seconds
+TARGET_VIDEO_DURATION = 25  # seconds (20s AI clip + 5s CTA outro)
 
 # Overlay settings
 OVERLAY_FONT = os.getenv("OVERLAY_FONT", "")  # Path to .ttf font, or empty for default
@@ -56,9 +56,9 @@ COST_PER_SECOND = {
     },
 }
 
-# Sora accepts 4, 8, or 12s clips
+# Sora 2 accepts 5, 10, 15, or 20s clips
 CLIP_DURATION = {
-    "sora": 12,
+    "sora": 20,
 }
 
 

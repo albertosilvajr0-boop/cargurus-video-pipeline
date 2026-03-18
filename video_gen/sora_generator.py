@@ -103,10 +103,10 @@ class SoraGenerator:
     ) -> str | None:
         """Generate clip with retry logic."""
         size = SORA_SIZES.get(settings.VIDEO_ASPECT_RATIO, "720x1280")
-        # Sora API only accepts seconds values of 4, 8, or 12
-        raw_duration = settings.CLIP_DURATION.get("sora", 8)
-        valid_durations = [4, 8, 12]
-        duration = min(d for d in valid_durations if d >= raw_duration) if raw_duration <= 12 else 12
+        # Sora 2 API accepts seconds values of 5, 10, 15, or 20
+        raw_duration = settings.CLIP_DURATION.get("sora", 20)
+        valid_durations = [5, 10, 15, 20]
+        duration = min(d for d in valid_durations if d >= raw_duration) if raw_duration <= 20 else 20
 
         # Build request payload
         payload = {
