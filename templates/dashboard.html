@@ -717,15 +717,19 @@
 
     <script>
         // ==================== TAB NAVIGATION ====================
+        function switchToTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const tabEl = document.querySelector(`.tab[data-tab="${tabName}"]`);
+            if (tabEl) tabEl.classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+            if (tabName === 'videos') refreshVideosTab();
+            if (tabName === 'admin') loadPromptTemplates();
+            try { localStorage.setItem('vp_activeTab', tabName); } catch(e) {}
+        }
+
         document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-                if (tab.dataset.tab === 'videos') refreshVideosTab();
-                if (tab.dataset.tab === 'admin') loadPromptTemplates();
-            });
+            tab.addEventListener('click', () => switchToTab(tab.dataset.tab));
         });
 
         async function refreshVideosTab() {
@@ -791,6 +795,7 @@
             document.getElementById('modeVin').style.color = mode === 'vin' ? 'white' : 'var(--muted)';
             document.getElementById('modeUpload').style.background = mode === 'upload' ? 'var(--accent)' : 'transparent';
             document.getElementById('modeUpload').style.color = mode === 'upload' ? 'white' : 'var(--muted)';
+            try { localStorage.setItem('vp_formMode', mode); } catch(e) {}
         }
 
         // ==================== VIN MODE ====================
@@ -1313,6 +1318,106 @@
 
         // Load templates on page load
         loadPromptTemplates();
+
+        // ==================== LOCAL STORAGE PERSISTENCE ====================
+        const STORAGE_KEYS = {
+            tab: 'vp_activeTab',
+            lastVideo: 'vp_lastVideo',
+            formVin: 'vp_formVin',
+            formPrice: 'vp_formPrice',
+            formPhone: 'vp_formPhone',
+            formAddress: 'vp_formAddress',
+            formCTA: 'vp_formCTA',
+            formMode: 'vp_formMode',
+        };
+
+        // Save form inputs on change
+        function persistFormInputs() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.formVin, document.getElementById('vinInput').value);
+                localStorage.setItem(STORAGE_KEYS.formPrice, document.getElementById('vinPrice').value);
+                localStorage.setItem(STORAGE_KEYS.formPhone, document.getElementById('vinPhone').value);
+                localStorage.setItem(STORAGE_KEYS.formAddress, document.getElementById('vinAddress').value);
+                localStorage.setItem(STORAGE_KEYS.formCTA, document.getElementById('vinCTA').value);
+                localStorage.setItem(STORAGE_KEYS.formMode, currentMode);
+            } catch(e) {}
+        }
+
+        ['vinInput', 'vinPrice', 'vinPhone', 'vinAddress', 'vinCTA'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', persistFormInputs);
+        });
+
+        // Save last video result when shown
+        const _origShowVideoResult = showVideoResult;
+        showVideoResult = function(job) {
+            _origShowVideoResult(job);
+            try {
+                localStorage.setItem(STORAGE_KEYS.lastVideo, JSON.stringify({
+                    video_filename: job.video_filename,
+                    caption: job.caption || '',
+                    timestamp: Date.now()
+                }));
+            } catch(e) {}
+        };
+
+        // Clear saved video on "Create Another"
+        const _origResetUpload = resetUpload;
+        resetUpload = function() {
+            _origResetUpload();
+            try { localStorage.removeItem(STORAGE_KEYS.lastVideo); } catch(e) {}
+            persistFormInputs();
+        };
+
+        // Restore state on page load
+        (function restoreState() {
+            try {
+                // Restore form inputs
+                const vin = localStorage.getItem(STORAGE_KEYS.formVin);
+                const price = localStorage.getItem(STORAGE_KEYS.formPrice);
+                const phone = localStorage.getItem(STORAGE_KEYS.formPhone);
+                const addr = localStorage.getItem(STORAGE_KEYS.formAddress);
+                const cta = localStorage.getItem(STORAGE_KEYS.formCTA);
+                const mode = localStorage.getItem(STORAGE_KEYS.formMode);
+
+                if (vin) { document.getElementById('vinInput').value = vin; onVinInput(document.getElementById('vinInput')); }
+                if (price) document.getElementById('vinPrice').value = price;
+                if (phone) document.getElementById('vinPhone').value = phone;
+                if (addr) document.getElementById('vinAddress').value = addr;
+                if (cta) document.getElementById('vinCTA').value = cta;
+                if (mode) setMode(mode);
+
+                // Restore last video result (if generated within last 24 hours)
+                const savedVideo = localStorage.getItem(STORAGE_KEYS.lastVideo);
+                if (savedVideo) {
+                    const video = JSON.parse(savedVideo);
+                    if (Date.now() - video.timestamp < 24 * 60 * 60 * 1000) {
+                        document.getElementById('uploadForm').style.display = 'none';
+                        document.getElementById('videoResult').classList.add('active');
+                        const videoUrl = `/videos/${video.video_filename}`;
+                        document.getElementById('resultVideo').src = videoUrl;
+                        document.getElementById('downloadLink').href = videoUrl;
+                        document.getElementById('downloadLink').download = video.video_filename;
+                        if (video.caption) {
+                            document.getElementById('captionText').textContent = video.caption;
+                            document.getElementById('captionBox').style.display = 'block';
+                        } else {
+                            document.getElementById('captionBox').style.display = 'none';
+                        }
+                    } else {
+                        localStorage.removeItem(STORAGE_KEYS.lastVideo);
+                    }
+                }
+
+                // Restore active tab (do this last so tab content loads properly)
+                const savedTab = localStorage.getItem(STORAGE_KEYS.tab);
+                if (savedTab && savedTab !== 'upload') {
+                    switchToTab(savedTab);
+                }
+            } catch(e) {
+                console.error('Failed to restore state:', e);
+            }
+        })();
 
         // ==================== BRANDING ====================
         async function saveBranding() {
