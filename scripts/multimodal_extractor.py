@@ -116,12 +116,13 @@ class MultimodalExtractor:
         self.model_name = "gemini-2.5-flash"
         self._last_error: str | None = None
 
-    def extract_and_script(self, image_paths: list[str]) -> dict | None:
+    def extract_and_script(self, image_paths: list[str], prompt_template: dict | None = None) -> dict | None:
         """
         Send all uploaded images to Gemini in one call.
 
         Args:
             image_paths: List of file paths (photos, sticker, carfax)
+            prompt_template: Optional prompt template dict with 'prompt_text' to override default style
 
         Returns:
             Parsed JSON dict with vehicle details and script, or None on failure
@@ -147,6 +148,17 @@ class MultimodalExtractor:
 
         # Add the text prompt
         prompt_text = EXTRACTION_PROMPT.format(dealer_name=settings.DEALER_NAME)
+
+        # Append video style template if provided
+        if prompt_template and prompt_template.get("prompt_text"):
+            template_text = prompt_template["prompt_text"].replace("{dealer_phone}", settings.DEALER_PHONE or "")
+            prompt_text += (
+                "\n\n## Video Style Template\n"
+                "IMPORTANT: Override the default veo_prompt style with the following production template. "
+                "Adapt this template to the specific vehicle while keeping the structure and environment exactly as described:\n\n"
+                + template_text
+            )
+
         parts.append(types.Part.from_text(text=prompt_text))
 
         console.print(f"[cyan]Sending {len(parts) - 1} images to Gemini for analysis...[/cyan]")

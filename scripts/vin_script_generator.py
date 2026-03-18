@@ -75,18 +75,30 @@ class VINScriptGenerator:
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model_name = "gemini-2.5-flash"
 
-    def generate(self, vehicle_specs: dict, price: float | int | None = None) -> dict | None:
+    def generate(self, vehicle_specs: dict, price: float | int | None = None, prompt_template: dict | None = None) -> dict | None:
         """
         Generate a video script from VIN-decoded vehicle specs.
 
         Args:
             vehicle_specs: Dict from vin_decoder.decode_vin()
             price: Optional price to include in the video
+            prompt_template: Optional prompt template dict with 'prompt_text' to override default style
 
         Returns:
             Parsed script dict, or None on failure
         """
         price_line = f"- **Price**: ${price:,.0f}" if price and price > 0 else ""
+
+        # If a prompt template is provided, inject it as additional style guidance
+        template_section = ""
+        if prompt_template and prompt_template.get("prompt_text"):
+            template_text = prompt_template["prompt_text"].replace("{dealer_phone}", settings.DEALER_PHONE or "")
+            template_section = (
+                "\n\n## Video Style Template\n"
+                "IMPORTANT: Override the default veo_prompt style with the following production template. "
+                "Adapt this template to the specific vehicle while keeping the structure and environment exactly as described:\n\n"
+                + template_text
+            )
 
         prompt = VIN_SCRIPT_PROMPT.format(
             vin=vehicle_specs.get("vin", ""),
@@ -102,6 +114,9 @@ class VINScriptGenerator:
             price_line=price_line,
             dealer_name=settings.DEALER_NAME,
         )
+
+        if template_section:
+            prompt += template_section
 
         console.print("[cyan]Generating video script from VIN specs...[/cyan]")
 
