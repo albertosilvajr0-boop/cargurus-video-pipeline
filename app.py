@@ -3,7 +3,7 @@
 New workflow:
   1. User uploads photos + window sticker + Carfax via drag-and-drop
   2. Gemini multimodal extracts vehicle details and generates script
-  3. Veo/Sora generates a single 8-second cinematic clip
+  3. Sora generates a cinematic video clip
   4. FFmpeg composites intro + clip + CTA outro with overlays
   5. User previews and downloads the final branded video
 """
@@ -26,7 +26,6 @@ logger = get_logger("app")
 from scripts.multimodal_extractor import MultimodalExtractor
 from scripts.vin_script_generator import VINScriptGenerator
 from utils.vin_decoder import decode_vin, validate_vin
-from video_gen.veo_generator import VeoGenerator
 from video_gen.sora_generator import SoraGenerator
 from video_gen.overlay import VideoOverlayPipeline
 from utils.database import (
@@ -308,44 +307,15 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             update_job(status="error", progress="No video prompt generated")
             return
 
-        clip_path = None
-        engine_used = settings.PRIMARY_VIDEO_ENGINE or "veo"
-        veo = None
-        sora = None
-
-        if engine_used == "veo":
-            veo = VeoGenerator()
-            clip_path = asyncio.run(
-                veo.generate_clip(veo_prompt, None, upload_id)
-            )
-            if not clip_path:
-                veo_err = getattr(veo, "_last_error", None) or "unknown"
-                update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
-                engine_used = "sora"
-                sora = SoraGenerator()
-                clip_path = asyncio.run(
-                    sora.generate_clip(veo_prompt, None, upload_id)
-                )
-        else:
-            sora = SoraGenerator()
-            clip_path = asyncio.run(
-                sora.generate_clip(veo_prompt, None, upload_id)
-            )
-            if not clip_path:
-                sora_err = getattr(sora, "_last_error", None) or "unknown"
-                update_job(progress=f"Sora failed ({sora_err}), trying Veo for {vehicle_name}...")
-                engine_used = "veo"
-                veo = VeoGenerator()
-                clip_path = asyncio.run(
-                    veo.generate_clip(veo_prompt, None, upload_id)
-                )
+        sora = SoraGenerator()
+        clip_path = asyncio.run(
+            sora.generate_clip(veo_prompt, None, upload_id)
+        )
 
         if not clip_path:
-            veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"
-            sora_err = getattr(sora, "_last_error", None) if sora else "not attempted"
-            detail = f"Veo: {veo_err or 'unknown'}; Sora: {sora_err or 'unknown'}"
-            update_job(status="error", progress=f"All video engines failed — {detail}")
-            update_vehicle_status(vehicle_id, "error", error_message=f"All video engines failed — {detail}")
+            sora_err = getattr(sora, "_last_error", None) or "unknown"
+            update_job(status="error", progress=f"Sora video generation failed — {sora_err}")
+            update_vehicle_status(vehicle_id, "error", error_message=f"Sora failed: {sora_err}")
             return
 
         # --- Step 4: Overlay pipeline (no hero photo — text-only intro) ---
@@ -376,7 +346,7 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             vehicle_id,
             "video_complete",
             video_path=final_path,
-            video_engine=engine_used,
+            video_engine="sora",
             video_cost=cost_tracker.session_cost,
             video_generated_at=datetime.now().isoformat(),
         )
@@ -480,45 +450,15 @@ def _process_upload(
         else:
             hero_photo = photo_paths[0] if photo_paths else None
 
-        # Try primary engine first, fall back to the other
-        clip_path = None
-        engine_used = settings.PRIMARY_VIDEO_ENGINE or "veo"
-        veo = None
-        sora = None
-
-        if engine_used == "veo":
-            veo = VeoGenerator()
-            clip_path = asyncio.run(
-                veo.generate_clip(veo_prompt, hero_photo, upload_id)
-            )
-            if not clip_path:
-                veo_err = getattr(veo, "_last_error", None) or "unknown"
-                update_job(progress=f"Veo failed ({veo_err}), trying Sora for {vehicle_name}...")
-                engine_used = "sora"
-                sora = SoraGenerator()
-                clip_path = asyncio.run(
-                    sora.generate_clip(veo_prompt, hero_photo, upload_id)
-                )
-        else:
-            sora = SoraGenerator()
-            clip_path = asyncio.run(
-                sora.generate_clip(veo_prompt, hero_photo, upload_id)
-            )
-            if not clip_path:
-                sora_err = getattr(sora, "_last_error", None) or "unknown"
-                update_job(progress=f"Sora failed ({sora_err}), trying Veo for {vehicle_name}...")
-                engine_used = "veo"
-                veo = VeoGenerator()
-                clip_path = asyncio.run(
-                    veo.generate_clip(veo_prompt, hero_photo, upload_id)
-                )
+        sora = SoraGenerator()
+        clip_path = asyncio.run(
+            sora.generate_clip(veo_prompt, hero_photo, upload_id)
+        )
 
         if not clip_path:
-            veo_err = getattr(veo, "_last_error", None) if veo else "not attempted"
-            sora_err = getattr(sora, "_last_error", None) if sora else "not attempted"
-            detail = f"Veo: {veo_err or 'unknown'}; Sora: {sora_err or 'unknown'}"
-            update_job(status="error", progress=f"All video engines failed — {detail}")
-            update_vehicle_status(vehicle_id, "error", error_message=f"All video engines failed — {detail}")
+            sora_err = getattr(sora, "_last_error", None) or "unknown"
+            update_job(status="error", progress=f"Sora video generation failed — {sora_err}")
+            update_vehicle_status(vehicle_id, "error", error_message=f"Sora failed: {sora_err}")
             return
 
         # --- Step 3: Overlay pipeline ---
@@ -548,7 +488,7 @@ def _process_upload(
             vehicle_id,
             "video_complete",
             video_path=final_path,
-            video_engine=engine_used,
+            video_engine="sora",
             video_cost=cost_tracker.session_cost,
             video_generated_at=datetime.now().isoformat(),
         )

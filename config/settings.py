@@ -36,7 +36,7 @@ DEALER_LOGO_PATH = os.getenv("DEALER_LOGO_PATH", "")  # Path to logo PNG with tr
 MAX_VEHICLES = int(os.getenv("MAX_VEHICLES", "0"))
 VIDEO_QUALITY = os.getenv("VIDEO_QUALITY", "fast")  # fast, standard, pro
 COST_LIMIT = float(os.getenv("COST_LIMIT", "50.0"))
-PRIMARY_VIDEO_ENGINE = os.getenv("PRIMARY_VIDEO_ENGINE", "sora")  # veo or sora
+PRIMARY_VIDEO_ENGINE = "sora"
 VIDEO_ASPECT_RATIO = os.getenv("VIDEO_ASPECT_RATIO", "9:16")
 VIDEO_RESOLUTION = os.getenv("VIDEO_RESOLUTION", "720p")
 TARGET_VIDEO_DURATION = 15  # seconds
@@ -49,11 +49,6 @@ OVERLAY_BOTTOM_BAR_COLOR = os.getenv("OVERLAY_BOTTOM_BAR_COLOR", "#000000CC")  #
 
 # Cost per second by engine and quality
 COST_PER_SECOND = {
-    "veo": {
-        "fast": 0.15,
-        "standard": 0.40,
-        "pro": 0.75,
-    },
     "sora": {
         "fast": 0.10,
         "standard": 0.30,
@@ -61,9 +56,8 @@ COST_PER_SECOND = {
     },
 }
 
-# Veo generates 8s clips, Sora accepts 4, 8, or 12s
+# Sora accepts 4, 8, or 12s clips
 CLIP_DURATION = {
-    "veo": 8,
     "sora": 12,
 }
 
@@ -79,7 +73,7 @@ def validate_config():
     """Validate that all required config is present."""
     errors = []
     if not GOOGLE_API_KEY:
-        errors.append("GOOGLE_API_KEY is not set")
+        errors.append("GOOGLE_API_KEY is not set (needed for Gemini extraction)")
     if not OPENAI_API_KEY:
-        errors.append("OPENAI_API_KEY is not set (needed for Sora fallback)")
+        errors.append("OPENAI_API_KEY is not set (needed for Sora video generation)")
     return errors

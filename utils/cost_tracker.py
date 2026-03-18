@@ -37,22 +37,15 @@ class CostTracker:
     
     def get_best_engine(self) -> tuple[str, str]:
         """Determine the best engine/quality combo within budget."""
-        primary = settings.PRIMARY_VIDEO_ENGINE
         quality = settings.VIDEO_QUALITY
-        
-        if self.can_afford(primary, quality):
-            return primary, quality
-        
-        # Try cheaper alternatives
-        fallbacks = [
-            ("sora", "fast"),
-            ("veo", "fast"),
-        ]
-        
-        for engine, q in fallbacks:
-            if self.can_afford(engine, q):
-                return engine, q
-        
+
+        if self.can_afford("sora", quality):
+            return "sora", quality
+
+        # Try cheapest option
+        if self.can_afford("sora", "fast"):
+            return "sora", "fast"
+
         return None, None  # Can't afford anything
     
     def print_summary(self):
