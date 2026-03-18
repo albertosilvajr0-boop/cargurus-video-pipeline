@@ -83,6 +83,15 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
         );
+
+        CREATE TABLE IF NOT EXISTS prompt_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            display_name TEXT NOT NULL,
+            prompt_text TEXT NOT NULL,
+            is_default INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     conn.close()
@@ -222,6 +231,108 @@ def retry_failed_vehicles(target_status: str = "scraped") -> int:
     conn.commit()
     conn.close()
     return count
+
+
+### Prompt Templates CRUD ###
+
+SHOWROOM_VIDEO_PROMPT = """You are generating a standardized, high-fidelity Sora/Veo prompt for a professional vehicle walkaround.
+You must integrate a professional presenter and place the vehicle in a controlled, ultra-premium showroom.
+Precision of text and consistency of the environment are the highest priorities.
+
+## Data Extraction Protocol
+From the vehicle info provided, extract:
+- Vehicle Identity: [Year] [Make] [Model] [Trim]
+- Visual Specs: Paint name, interior color, wheel type
+- Trust Data: Carfax status (e.g., "1-Owner") and MSRP
+- Key Features: Select 2 premium features for the walkaround
+
+## The "Zero Variation" Production Manifest
+Generate the veo_prompt using this structure:
+
+[VEHICLE NAME] - Professional Walkaround
+
+Subject: A pristine [EXTERIOR COLOR] [YEAR] [MAKE] [MODEL]. The presenter is a professional salesperson wearing a navy blazer and grey chinos.
+
+Environment: A minimalist, high-end automotive studio. The floor is dark obsidian-polished tile. The background is a solid, neutral-toned architectural wall — no windows, no cityscape. Lighting is provided by overhead linear "ribbon" soft-boxes that create perfectly straight, crisp reflections on the car's paint. The vehicle glass is 100% clean with no stickers or decals.
+
+Motion Sequence:
+0-15s: Wide hero shot of the presenter and the car in the dark studio.
+15-45s: Close-up pans of [FEATURE 1] and [FEATURE 2]. The presenter gestures toward them with calm, professional movements.
+45-60s: Camera pulls back to center the presenter.
+
+Text & Contact Integration:
+During the final 10 seconds, a digitally clear, bold white graphic appears at the bottom center of the frame.
+The text MUST read exactly: "Call {dealer_phone}".
+The characters must be static, legible, and maintain a consistent sans-serif font. No flickering or morphing of the numbers.
+
+Cinematography: 8K, Arri Alexa, 35mm f/2.8 lens. High contrast between the car and the dark background. Focus is locked on the presenter and the vehicle."""
+
+
+def seed_default_templates():
+    """Insert the default Showroom Video template if no templates exist."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT COUNT(*) as count FROM prompt_templates")
+    if cursor.fetchone()["count"] == 0:
+        conn.execute(
+            "INSERT INTO prompt_templates (display_name, prompt_text, is_default) VALUES (?, ?, 1)",
+            ("Showroom Video", SHOWROOM_VIDEO_PROMPT),
+        )
+        conn.commit()
+    conn.close()
+
+
+def get_all_prompt_templates() -> list:
+    """Get all prompt templates."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM prompt_templates ORDER BY is_default DESC, display_name")
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_prompt_template(template_id: int) -> dict | None:
+    """Get a single prompt template by ID."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM prompt_templates WHERE id = ?", (template_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_prompt_template(display_name: str, prompt_text: str) -> int:
+    """Create a new prompt template. Returns the new template ID."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO prompt_templates (display_name, prompt_text) VALUES (?, ?)",
+        (display_name, prompt_text),
+    )
+    template_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return template_id
+
+
+def update_prompt_template(template_id: int, display_name: str, prompt_text: str) -> bool:
+    """Update an existing prompt template. Returns True if found and updated."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE prompt_templates SET display_name = ?, prompt_text = ?, updated_at = ? WHERE id = ?",
+        (display_name, prompt_text, datetime.now().isoformat(), template_id),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def delete_prompt_template(template_id: int) -> bool:
+    """Delete a prompt template. Returns True if found and deleted."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def retry_vehicle_by_id(vehicle_id: int, target_status: str = "scraped") -> bool:

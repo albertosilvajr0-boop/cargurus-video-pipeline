@@ -29,6 +29,8 @@ from utils.database import (
     init_db, get_all_vehicles, get_vehicles_by_status,
     get_pipeline_stats, upsert_vehicle, update_vehicle_status,
     retry_failed_vehicles, retry_vehicle_by_id,
+    seed_default_templates, get_all_prompt_templates, get_prompt_template,
+    create_prompt_template, update_prompt_template, delete_prompt_template,
 )
 from utils.cost_tracker import CostTracker
 
@@ -36,6 +38,7 @@ app = Flask(__name__)
 
 # Initialize database on startup
 init_db()
+seed_default_templates()
 
 # Track background jobs
 _jobs_lock = threading.Lock()
@@ -132,9 +135,15 @@ def api_upload_vehicle():
         "cta_text": request.form.get("cta_text", ""),
     }
 
+    # Optional prompt template
+    prompt_template_id = request.form.get("prompt_template_id")
+    prompt_template = None
+    if prompt_template_id:
+        prompt_template = get_prompt_template(int(prompt_template_id))
+
     thread = threading.Thread(
         target=_process_upload,
-        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides),
+        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template),
         daemon=True,
     )
     thread.start()
@@ -181,9 +190,14 @@ def api_vin_generate():
         "cta_text": data.get("cta_text", ""),
     }
 
+    # Optional prompt template
+    prompt_template = None
+    if data.get("prompt_template_id"):
+        prompt_template = get_prompt_template(int(data["prompt_template_id"]))
+
     thread = threading.Thread(
         target=_process_vin,
-        args=(job_id, clean_vin, overrides),
+        args=(job_id, clean_vin, overrides, prompt_template),
         daemon=True,
     )
     thread.start()
@@ -209,7 +223,7 @@ def api_vin_decode_only():
     return jsonify(specs)
 
 
-def _process_vin(job_id: str, vin: str, overrides: dict):
+def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None):
     """Background worker: decode VIN → generate script → generate video → overlay → done."""
     def update_job(**kwargs):
         with _jobs_lock:
@@ -231,7 +245,7 @@ def _process_vin(job_id: str, vin: str, overrides: dict):
         update_job(status="extracting", progress=f"Generating video script for {vehicle_name}...")
         price = overrides.get("price")
         generator = VINScriptGenerator()
-        result = generator.generate(specs, price=price)
+        result = generator.generate(specs, price=price, prompt_template=prompt_template)
 
         if not result:
             update_job(status="error", progress="Failed to generate video script")
@@ -349,6 +363,7 @@ def _process_upload(
     photo_paths: list[str],
     sticker_path: str | None,
     overrides: dict,
+    prompt_template: dict | None = None,
 ):
     """Background worker: extract → generate video → overlay → done."""
     def update_job(**kwargs):
@@ -359,7 +374,7 @@ def _process_upload(
         # --- Step 1: Gemini multimodal extraction ---
         update_job(status="extracting", progress="Sending images to Gemini for analysis...")
         extractor = MultimodalExtractor()
-        result = extractor.extract_and_script(all_image_paths)
+        result = extractor.extract_and_script(all_image_paths, prompt_template=prompt_template)
 
         if not result:
             detail = getattr(extractor, "_last_error", None) or "could not analyze images"
@@ -589,6 +604,43 @@ def api_retry_vehicle(vehicle_id):
     if success:
         return jsonify({"status": "ok", "vehicle_id": vehicle_id, "target_status": target})
     return jsonify({"error": "Vehicle not found or not in error state"}), 404
+
+
+# --- Prompt Templates API ---
+
+@app.route("/api/prompt-templates")
+def api_list_prompt_templates():
+    """List all prompt templates."""
+    return jsonify(get_all_prompt_templates())
+
+
+@app.route("/api/prompt-templates", methods=["POST"])
+def api_create_prompt_template():
+    """Create a new prompt template."""
+    data = request.get_json()
+    if not data or not data.get("display_name") or not data.get("prompt_text"):
+        return jsonify({"error": "display_name and prompt_text are required"}), 400
+    template_id = create_prompt_template(data["display_name"], data["prompt_text"])
+    return jsonify({"id": template_id, "status": "created"})
+
+
+@app.route("/api/prompt-templates/<int:template_id>", methods=["PUT"])
+def api_update_prompt_template(template_id):
+    """Update an existing prompt template."""
+    data = request.get_json()
+    if not data or not data.get("display_name") or not data.get("prompt_text"):
+        return jsonify({"error": "display_name and prompt_text are required"}), 400
+    if update_prompt_template(template_id, data["display_name"], data["prompt_text"]):
+        return jsonify({"status": "updated"})
+    return jsonify({"error": "Template not found"}), 404
+
+
+@app.route("/api/prompt-templates/<int:template_id>", methods=["DELETE"])
+def api_delete_prompt_template(template_id):
+    """Delete a prompt template."""
+    if delete_prompt_template(template_id):
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "Template not found"}), 404
 
 
 # --- File serving ---
