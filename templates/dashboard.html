@@ -670,8 +670,60 @@
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                 tab.classList.add('active');
                 document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'videos') refreshVideosTab();
             });
         });
+
+        async function refreshVideosTab() {
+            try {
+                const [statsRes, vehiclesRes] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/vehicles')
+                ]);
+                const stats = await statsRes.json();
+                const vehicles = await vehiclesRes.json();
+
+                document.getElementById('statTotal').textContent = stats.total_vehicles;
+                document.getElementById('statComplete').textContent = stats.videos_completed;
+                document.getElementById('statSpend').textContent = '$' + (stats.total_cost || 0).toFixed(2);
+
+                const container = document.getElementById('tab-videos');
+                const tableWrapper = container.querySelector('.table-wrapper');
+                const emptyState = container.querySelector('.empty-state');
+
+                if (vehicles.length > 0) {
+                    const rows = vehicles.map(v => {
+                        const name = [v.year || '', v.make || '', v.model || ''].join(' ').trim();
+                        const trim = v.trim ? `<br><span style="color:var(--muted);font-size:0.8rem">${v.trim}</span>` : '';
+                        const price = v.price ? '$' + Number(v.price).toLocaleString() : '&mdash;';
+                        const status = (v.status || '').replace(/_/g, ' ');
+                        const cost = v.video_cost ? '$' + v.video_cost.toFixed(2) : '&mdash;';
+                        return `<tr>
+                            <td><strong>${name}</strong>${trim}</td>
+                            <td>${price}</td>
+                            <td><span class="badge ${v.status}">${status}</span></td>
+                            <td>${cost}</td>
+                            <td><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button></td>
+                        </tr>`;
+                    }).join('');
+
+                    if (tableWrapper) {
+                        tableWrapper.querySelector('tbody').innerHTML = rows;
+                    } else {
+                        if (emptyState) emptyState.remove();
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'table-wrapper';
+                        wrapper.innerHTML = `<table>
+                            <thead><tr><th>Vehicle</th><th>Price</th><th>Status</th><th>Cost</th><th></th></tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>`;
+                        container.appendChild(wrapper);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to refresh videos tab:', e);
+            }
+        }
 
         // ==================== MODE TOGGLE ====================
         let currentMode = 'vin';
