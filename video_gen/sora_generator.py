@@ -96,19 +96,13 @@ class SoraGenerator:
             "seconds": duration,
         }
 
-        # Add reference image if provided
-        # Upload the file first, then pass as an object with file_id
-        uploaded_file = None
+        # Add reference image if provided (as tuple with explicit media type)
         if reference_image_path and Path(reference_image_path).exists():
-            try:
-                with open(reference_image_path, "rb") as img_file:
-                    uploaded_file = self.client.files.create(
-                        file=img_file, purpose="vision"
-                    )
-                create_kwargs["input_reference"] = {"file_id": uploaded_file.id}
-                console.print(f"[dim]Uploaded reference image: {uploaded_file.id}[/dim]")
-            except Exception as upload_err:
-                console.print(f"[yellow]Could not upload reference image: {upload_err} — generating without reference[/yellow]")
+            ref_path = Path(reference_image_path)
+            suffix = ref_path.suffix.lower()
+            media_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+            media_type = media_types.get(suffix, "image/jpeg")
+            create_kwargs["input_reference"] = (ref_path.name, ref_path.read_bytes(), media_type)
 
         video_job = self.client.videos.create(**create_kwargs)
 
