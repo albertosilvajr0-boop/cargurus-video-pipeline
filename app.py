@@ -35,6 +35,7 @@ from utils.database import (
     seed_default_templates, get_all_prompt_templates, get_prompt_template,
     create_prompt_template, update_prompt_template, delete_prompt_template,
     save_branding_settings, get_branding_settings,
+    get_cost_analytics,
 )
 from utils.cost_tracker import CostTracker
 from utils.cloud_storage import upload_video as gcs_upload_video, is_gcs_enabled
@@ -364,12 +365,20 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             else:
                 logger.warning("GCS upload failed — video is still available locally")
 
-        # --- Done ---
+        # --- Done: record actual costs ---
+        engine = "sora"
+        quality = settings.VIDEO_QUALITY
+        video_cost = settings.get_cost_per_video(engine, quality)
+        gemini_cost = settings.GEMINI_COST_PER_CALL
+
         cost_tracker = CostTracker()
+        cost_tracker.record_cost(vehicle_id, engine, quality, 20.0, video_cost, "video_generation")
+        cost_tracker.record_cost(vehicle_id, "gemini", quality, 0, gemini_cost, "script_generation")
+
         status_kwargs = dict(
             video_path=final_path,
-            video_engine="sora",
-            video_cost=cost_tracker.session_cost,
+            video_engine=engine,
+            video_cost=video_cost + gemini_cost,
             video_generated_at=datetime.now().isoformat(),
         )
         if video_url:
@@ -518,12 +527,20 @@ def _process_upload(
             else:
                 logger.warning("GCS upload failed — video is still available locally")
 
-        # --- Done ---
+        # --- Done: record actual costs ---
+        engine = "sora"
+        quality = settings.VIDEO_QUALITY
+        video_cost = settings.get_cost_per_video(engine, quality)
+        gemini_cost = settings.GEMINI_COST_PER_CALL
+
         cost_tracker = CostTracker()
+        cost_tracker.record_cost(vehicle_id, engine, quality, 20.0, video_cost, "video_generation")
+        cost_tracker.record_cost(vehicle_id, "gemini", quality, 0, gemini_cost, "script_generation")
+
         status_kwargs = dict(
             video_path=final_path,
-            video_engine="sora",
-            video_cost=cost_tracker.session_cost,
+            video_engine=engine,
+            video_cost=video_cost + gemini_cost,
             video_generated_at=datetime.now().isoformat(),
         )
         if video_url:
@@ -612,6 +629,51 @@ def api_get_branding():
         "website": settings.DEALER_WEBSITE,
         "has_logo": bool(settings.DEALER_LOGO_PATH and Path(settings.DEALER_LOGO_PATH).exists()),
     })
+
+
+# --- Cost APIs ---
+
+@app.route("/api/costs")
+def api_costs():
+    """Get detailed cost analytics for the Costs tab."""
+    analytics = get_cost_analytics()
+    # Include current rate config so the UI can display it
+    analytics["current_rates"] = settings.COST_PER_VIDEO
+    analytics["gemini_rate"] = settings.GEMINI_COST_PER_CALL
+    return jsonify(analytics)
+
+
+@app.route("/api/costs/backfill", methods=["POST"])
+def api_costs_backfill():
+    """Backfill costs for videos that were generated before cost tracking was fixed.
+
+    Applies the given per-video cost to all completed videos that currently have $0 cost.
+    JSON body: { "cost_per_video": 1.20 }
+    """
+    data = request.get_json()
+    cost = float(data.get("cost_per_video", 1.20))
+
+    from utils.database import get_connection, log_cost
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT id, video_engine FROM vehicles "
+        "WHERE video_path IS NOT NULL AND (video_cost IS NULL OR video_cost = 0)"
+    )
+    rows = cursor.fetchall()
+    updated = 0
+    for row in rows:
+        vid = row["id"]
+        engine = row["video_engine"] or "sora"
+        conn.execute(
+            "UPDATE vehicles SET video_cost = ?, updated_at = ? WHERE id = ?",
+            (cost, datetime.now().isoformat(), vid)
+        )
+        log_cost(vid, engine, settings.VIDEO_QUALITY, 20.0, cost, "video_generation")
+        updated += 1
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "ok", "backfilled": updated, "cost_per_video": cost})
 
 
 # --- Data APIs (kept from original) ---

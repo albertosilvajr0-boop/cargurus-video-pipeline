@@ -444,6 +444,7 @@
         @media (max-width: 640px) {
             .form-row { grid-template-columns: 1fr; }
             .video-actions { flex-direction: column; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
         }
         /* Global Job Tracker */
         .global-jobs-bar {
@@ -547,6 +548,7 @@
         <div class="tabs">
             <div class="tab active" data-tab="upload">Create Video</div>
             <div class="tab" data-tab="videos">My Videos</div>
+            <div class="tab" data-tab="costs">Costs</div>
             <div class="tab" data-tab="settings">Branding</div>
             <div class="tab" data-tab="admin">Admin</div>
         </div>
@@ -826,6 +828,108 @@
             {% endif %}
         </div>
 
+        <!-- ========== TAB: Costs ========== -->
+        <div id="tab-costs" class="tab-content">
+            <!-- KPI Cards -->
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-top:24px">
+                <div class="stat-card">
+                    <div class="label">Total Spend</div>
+                    <div class="value yellow" id="costTotalSpend">$0.00</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Videos Generated</div>
+                    <div class="value cyan" id="costVideoCount">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Avg Cost / Video</div>
+                    <div class="value green" id="costAvgPerVideo">$0.00</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Budget Remaining</div>
+                    <div class="value" id="costBudgetRemaining" style="color:var(--green)">$0.00</div>
+                </div>
+            </div>
+
+            <!-- Budget Bar -->
+            <div class="form-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <h3 style="margin:0">Monthly Budget</h3>
+                    <span id="costBudgetLabel" style="font-size:0.85rem;color:var(--muted)">$0 / $50</span>
+                </div>
+                <div style="height:12px;background:var(--surface2);border-radius:6px;overflow:hidden">
+                    <div id="costBudgetBar" style="height:100%;background:var(--green);border-radius:6px;transition:width 0.4s;width:0%"></div>
+                </div>
+            </div>
+
+            <!-- Spend by Engine -->
+            <div class="form-section">
+                <h3>Spend by Engine</h3>
+                <div id="costByEngine" style="margin-top:12px">
+                    <p style="color:var(--muted);font-size:0.85rem">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Spend by API Type -->
+            <div class="form-section">
+                <h3>Spend by API Call Type</h3>
+                <div id="costByType" style="margin-top:12px">
+                    <p style="color:var(--muted);font-size:0.85rem">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Daily Spend -->
+            <div class="form-section">
+                <h3>Daily Spend</h3>
+                <div id="costByDay" style="margin-top:12px">
+                    <p style="color:var(--muted);font-size:0.85rem">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="form-section">
+                <h3>Recent Transactions</h3>
+                <div class="table-wrapper" style="margin-top:12px;border:none">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Vehicle</th>
+                                <th>Engine</th>
+                                <th>Type</th>
+                                <th>Cost</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="costRecentBody">
+                            <tr><td colspan="5" style="color:var(--muted);text-align:center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Current Rates & Backfill -->
+            <div class="form-section" style="border-color:var(--yellow)">
+                <h3>Rate Configuration</h3>
+                <p style="color:var(--muted);font-size:0.85rem;margin-bottom:16px">
+                    Current rate used for new videos. Update if OpenAI changes pricing.
+                </p>
+                <div id="costCurrentRates" style="margin-bottom:16px"></div>
+                <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+                    <h3 style="margin-bottom:8px">Backfill Missing Costs</h3>
+                    <p style="color:var(--muted);font-size:0.85rem;margin-bottom:12px">
+                        Apply a cost to videos generated before tracking was fixed (those showing $0.00).
+                    </p>
+                    <div style="display:flex;gap:12px;align-items:flex-end">
+                        <div class="form-field">
+                            <label>Cost per Video ($)</label>
+                            <input type="number" id="backfillCost" value="1.20" min="0" step="0.01" style="width:120px">
+                        </div>
+                        <button class="btn primary" onclick="backfillCosts()">Backfill $0 Videos</button>
+                        <span id="backfillResult" style="color:var(--green);font-size:0.85rem;display:none"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ========== TAB: Branding ========== -->
         <div id="tab-settings" class="tab-content">
             <div class="branding-section">
@@ -919,6 +1023,7 @@
             if (tabEl) tabEl.classList.add('active');
             document.getElementById('tab-' + tabName).classList.add('active');
             if (tabName === 'videos') refreshVideosTab();
+            if (tabName === 'costs') loadCostsTab();
             if (tabName === 'admin') loadPromptTemplates();
             try { localStorage.setItem('vp_activeTab', tabName); } catch(e) {}
         }
@@ -1989,9 +2094,156 @@
         });
 
         // ==================== COST ESTIMATE ====================
-        const costs = { veo: { fast: 1.20, standard: 3.20, pro: 6.00 }, sora: { fast: 1.00, standard: 3.00, pro: 5.00 } };
+        const costs = { sora: { fast: 1.20, standard: 3.00, pro: 6.00 }, veo: { fast: 0.50, standard: 1.50, pro: 4.00 } };
         document.getElementById('costEstimate').textContent =
-            (costs['{{ settings.PRIMARY_VIDEO_ENGINE }}'] || costs.veo)['{{ settings.VIDEO_QUALITY }}'] || '1.20';
+            (costs['{{ settings.PRIMARY_VIDEO_ENGINE }}'] || costs.sora)['{{ settings.VIDEO_QUALITY }}'] || '1.20';
+
+        // ==================== COSTS TAB ====================
+        async function loadCostsTab() {
+            try {
+                const res = await fetch('/api/costs');
+                const data = await res.json();
+
+                // KPI cards
+                document.getElementById('costTotalSpend').textContent = '$' + data.total_cost.toFixed(2);
+                document.getElementById('costVideoCount').textContent = data.videos_completed;
+                document.getElementById('costAvgPerVideo').textContent = '$' + data.avg_cost_per_video.toFixed(2);
+                document.getElementById('costBudgetRemaining').textContent = '$' + data.budget_remaining.toFixed(2);
+
+                // Color budget remaining based on how much is left
+                const remainEl = document.getElementById('costBudgetRemaining');
+                if (data.budget_used_pct > 90) remainEl.style.color = 'var(--red)';
+                else if (data.budget_used_pct > 70) remainEl.style.color = 'var(--yellow)';
+                else remainEl.style.color = 'var(--green)';
+
+                // Budget bar
+                document.getElementById('costBudgetLabel').textContent =
+                    `$${data.total_cost.toFixed(2)} / $${data.budget_limit.toFixed(2)}`;
+                const bar = document.getElementById('costBudgetBar');
+                bar.style.width = Math.min(100, data.budget_used_pct).toFixed(1) + '%';
+                if (data.budget_used_pct > 90) bar.style.background = 'var(--red)';
+                else if (data.budget_used_pct > 70) bar.style.background = 'var(--yellow)';
+                else bar.style.background = 'var(--green)';
+
+                // Spend by engine
+                const engineEl = document.getElementById('costByEngine');
+                if (data.by_engine && data.by_engine.length > 0) {
+                    engineEl.innerHTML = data.by_engine.map(e => {
+                        const pct = data.total_cost > 0 ? (e.total / data.total_cost * 100) : 0;
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+                            <div>
+                                <span style="font-weight:600;text-transform:uppercase">${e.engine}</span>
+                                <span style="color:var(--muted);font-size:0.85rem;margin-left:8px">${e.count} videos</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:12px">
+                                <div style="width:120px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                                    <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:3px"></div>
+                                </div>
+                                <span style="font-weight:600;min-width:70px;text-align:right">$${e.total.toFixed(2)}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
+                } else {
+                    engineEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No cost data yet. Generate a video to see engine breakdown.</p>';
+                }
+
+                // Spend by type
+                const typeEl = document.getElementById('costByType');
+                if (data.by_type && data.by_type.length > 0) {
+                    typeEl.innerHTML = data.by_type.map(t => {
+                        const label = t.api_call_type === 'video_generation' ? 'Video Generation (OpenAI Sora)'
+                            : t.api_call_type === 'script_generation' ? 'Script Generation (Google Gemini)'
+                            : t.api_call_type;
+                        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+                            <span>${label} <span style="color:var(--muted);font-size:0.85rem">(${t.count} calls)</span></span>
+                            <span style="font-weight:600">$${t.total.toFixed(2)}</span>
+                        </div>`;
+                    }).join('');
+                } else {
+                    typeEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No cost data yet.</p>';
+                }
+
+                // Daily spend
+                const dayEl = document.getElementById('costByDay');
+                if (data.by_day && data.by_day.length > 0) {
+                    const maxDay = Math.max(...data.by_day.map(d => d.total));
+                    dayEl.innerHTML = data.by_day.map(d => {
+                        const barW = maxDay > 0 ? (d.total / maxDay * 100) : 0;
+                        return `<div style="display:flex;align-items:center;gap:12px;padding:6px 0">
+                            <span style="min-width:90px;font-size:0.85rem;color:var(--muted);font-family:monospace">${d.day}</span>
+                            <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+                                <div style="height:100%;width:${barW}%;background:var(--cyan);border-radius:4px"></div>
+                            </div>
+                            <span style="min-width:60px;text-align:right;font-size:0.85rem;font-weight:600">$${d.total.toFixed(2)}</span>
+                            <span style="min-width:30px;text-align:right;font-size:0.75rem;color:var(--muted)">${d.count}x</span>
+                        </div>`;
+                    }).join('');
+                } else {
+                    dayEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No daily data yet.</p>';
+                }
+
+                // Recent transactions
+                const tbody = document.getElementById('costRecentBody');
+                if (data.recent && data.recent.length > 0) {
+                    tbody.innerHTML = data.recent.map(r => {
+                        const vehicle = [r.year || '', r.make || '', r.model || ''].join(' ').trim() || 'N/A';
+                        const typeLabel = r.api_call_type === 'video_generation' ? 'Video Gen'
+                            : r.api_call_type === 'script_generation' ? 'Script Gen'
+                            : r.api_call_type || 'Unknown';
+                        const date = r.created_at ? new Date(r.created_at).toLocaleDateString() : '';
+                        return `<tr>
+                            <td>${vehicle}</td>
+                            <td><span style="text-transform:uppercase;font-size:0.8rem">${r.engine || ''}</span></td>
+                            <td><span style="font-size:0.8rem">${typeLabel}</span></td>
+                            <td style="font-weight:600">$${r.cost.toFixed(2)}</td>
+                            <td style="color:var(--muted);font-size:0.85rem">${date}</td>
+                        </tr>`;
+                    }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center">No transactions yet</td></tr>';
+                }
+
+                // Current rates
+                const ratesEl = document.getElementById('costCurrentRates');
+                if (data.current_rates) {
+                    let ratesHtml = '';
+                    for (const [engine, qualities] of Object.entries(data.current_rates)) {
+                        ratesHtml += `<div style="margin-bottom:8px"><span style="font-weight:600;text-transform:uppercase">${engine}</span>: `;
+                        const qParts = Object.entries(qualities).map(([q, c]) => `${q} $${c.toFixed(2)}`);
+                        ratesHtml += `<span style="color:var(--muted);font-size:0.85rem">${qParts.join(' · ')}</span></div>`;
+                    }
+                    ratesHtml += `<div><span style="font-weight:600">Gemini</span>: <span style="color:var(--muted);font-size:0.85rem">$${data.gemini_rate.toFixed(2)} / call</span></div>`;
+                    ratesEl.innerHTML = ratesHtml;
+                }
+            } catch (e) {
+                console.error('Failed to load costs:', e);
+            }
+        }
+
+        async function backfillCosts() {
+            const cost = parseFloat(document.getElementById('backfillCost').value);
+            if (isNaN(cost) || cost < 0) {
+                alert('Enter a valid cost');
+                return;
+            }
+            if (!confirm(`Apply $${cost.toFixed(2)} to all videos currently showing $0.00?`)) return;
+
+            try {
+                const res = await fetch('/api/costs/backfill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cost_per_video: cost })
+                });
+                const data = await res.json();
+                const msg = document.getElementById('backfillResult');
+                msg.textContent = `Updated ${data.backfilled} videos at $${cost.toFixed(2)} each`;
+                msg.style.display = 'inline';
+                setTimeout(() => { msg.style.display = 'none'; }, 5000);
+                loadCostsTab(); // Refresh
+            } catch (e) {
+                alert('Backfill failed: ' + e.message);
+            }
+        }
     </script>
 </body>
 </html>

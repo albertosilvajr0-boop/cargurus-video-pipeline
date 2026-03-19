@@ -72,17 +72,7 @@ class SoraGenerator:
             clip_path = await self._generate(prompt, reference_image_path, output_name)
 
             if clip_path:
-                clip_dur = settings.CLIP_DURATION["sora"]
-                cost = clip_dur * settings.COST_PER_SECOND["sora"][self.quality]
-                self.cost_tracker.record_cost(
-                    vehicle_id=0,
-                    engine="sora",
-                    quality=self.quality,
-                    duration=clip_dur,
-                    cost=cost,
-                    call_type="video_generation",
-                )
-                logger.info("Sora clip saved: %s (cost=$%.4f)", Path(clip_path).name, cost)
+                logger.info("Sora clip saved: %s", Path(clip_path).name)
                 console.print(f"[green]Sora clip saved: {Path(clip_path).name}[/green]")
             else:
                 self._last_error = self._last_error or "Sora returned no video"
@@ -104,7 +94,7 @@ class SoraGenerator:
         """Generate clip with retry logic."""
         size = SORA_SIZES.get(settings.VIDEO_ASPECT_RATIO, "720x1280")
         # Sora 2 API accepts seconds values of 5, 10, 15, or 20
-        raw_duration = settings.CLIP_DURATION.get("sora", 20)
+        raw_duration = 20  # default Sora clip duration
         valid_durations = [5, 10, 15, 20]
         duration = min(d for d in valid_durations if d >= raw_duration) if raw_duration <= 20 else 20
 

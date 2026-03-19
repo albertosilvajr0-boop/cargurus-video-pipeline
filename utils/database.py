@@ -212,7 +212,10 @@ def get_pipeline_stats() -> dict:
     stats["total_vehicles"] = cursor.fetchone()["total"]
     
     cursor = conn.execute("SELECT COALESCE(SUM(video_cost), 0) as total_cost FROM vehicles")
-    stats["total_cost"] = cursor.fetchone()["total_cost"]
+    vehicle_cost = cursor.fetchone()["total_cost"]
+    cursor = conn.execute("SELECT COALESCE(SUM(cost), 0) as total FROM cost_log")
+    log_cost_total = cursor.fetchone()["total"]
+    stats["total_cost"] = max(vehicle_cost, log_cost_total)
     
     cursor = conn.execute("SELECT COUNT(*) as count FROM vehicles WHERE video_path IS NOT NULL")
     stats["videos_completed"] = cursor.fetchone()["count"]
@@ -239,6 +242,71 @@ def get_total_spend() -> float:
     total = cursor.fetchone()["total"]
     conn.close()
     return total
+
+
+def get_cost_analytics() -> dict:
+    """Get detailed cost analytics for the Costs dashboard tab."""
+    conn = get_connection()
+    analytics = {}
+
+    # Total spend (from cost_log for accuracy)
+    cursor = conn.execute("SELECT COALESCE(SUM(cost), 0) as total FROM cost_log")
+    analytics["total_spend"] = cursor.fetchone()["total"]
+
+    # Total from vehicles table (fallback / cross-check)
+    cursor = conn.execute("SELECT COALESCE(SUM(video_cost), 0) as total FROM vehicles")
+    analytics["total_vehicle_cost"] = cursor.fetchone()["total"]
+
+    # Use the higher of the two as the canonical total
+    analytics["total_cost"] = max(analytics["total_spend"], analytics["total_vehicle_cost"])
+
+    # Video count
+    cursor = conn.execute("SELECT COUNT(*) as count FROM vehicles WHERE video_path IS NOT NULL")
+    analytics["videos_completed"] = cursor.fetchone()["count"]
+
+    # Average cost per video
+    if analytics["videos_completed"] > 0:
+        analytics["avg_cost_per_video"] = analytics["total_cost"] / analytics["videos_completed"]
+    else:
+        analytics["avg_cost_per_video"] = 0.0
+
+    # Spend by engine
+    cursor = conn.execute(
+        "SELECT engine, COUNT(*) as count, SUM(cost) as total "
+        "FROM cost_log WHERE api_call_type = 'video_generation' GROUP BY engine"
+    )
+    analytics["by_engine"] = [dict(row) for row in cursor.fetchall()]
+
+    # Spend by call type
+    cursor = conn.execute(
+        "SELECT api_call_type, COUNT(*) as count, SUM(cost) as total "
+        "FROM cost_log GROUP BY api_call_type"
+    )
+    analytics["by_type"] = [dict(row) for row in cursor.fetchall()]
+
+    # Spend by day (last 30 days)
+    cursor = conn.execute(
+        "SELECT DATE(created_at) as day, COUNT(*) as count, SUM(cost) as total "
+        "FROM cost_log GROUP BY DATE(created_at) ORDER BY day DESC LIMIT 30"
+    )
+    analytics["by_day"] = [dict(row) for row in cursor.fetchall()]
+
+    # Recent cost entries (last 20)
+    cursor = conn.execute(
+        "SELECT cl.*, v.year, v.make, v.model "
+        "FROM cost_log cl LEFT JOIN vehicles v ON cl.vehicle_id = v.id "
+        "ORDER BY cl.created_at DESC LIMIT 20"
+    )
+    analytics["recent"] = [dict(row) for row in cursor.fetchall()]
+
+    # Budget info
+    from config.settings import COST_LIMIT
+    analytics["budget_limit"] = COST_LIMIT
+    analytics["budget_remaining"] = max(0, COST_LIMIT - analytics["total_cost"])
+    analytics["budget_used_pct"] = min(100, (analytics["total_cost"] / COST_LIMIT * 100)) if COST_LIMIT > 0 else 0
+
+    conn.close()
+    return analytics
 
 
 def retry_failed_vehicles(target_status: str = "scraped") -> int:
