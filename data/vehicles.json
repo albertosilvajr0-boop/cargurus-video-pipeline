@@ -1,1 +1,36 @@
-[]
+[
+  {
+    "id": 1,
+    "cargurus_id": "cg_12345",
+    "vin": "1C6SRFFT0PN654321",
+    "year": 2024,
+    "make": "Ram",
+    "model": "1500",
+    "trim": "Big Horn",
+    "price": 42995.0,
+    "mileage": 12500,
+    "exterior_color": "Bright White",
+    "interior_color": "Black",
+    "engine": "5.7L V8 HEMI",
+    "transmission": "8-Speed Automatic",
+    "drivetrain": "4WD",
+    "listing_url": "https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?inventoryListing=12345",
+    "status": "scraped",
+    "error_message": null,
+    "photo_urls": "[]",
+    "sticker_url": null,
+    "photo_paths": "[]",
+    "sticker_path": null,
+    "video_script": null,
+    "video_path": null,
+    "video_url": null,
+    "video_engine": null,
+    "video_cost": 0.0,
+    "prompt_template_id": null,
+    "scraped_at": "2026-03-19 14:51:17",
+    "script_generated_at": null,
+    "video_generated_at": null,
+    "updated_at": "2026-03-19 14:51:17",
+    "prompt_template_name": null
+  }
+]
