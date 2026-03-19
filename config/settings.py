@@ -52,26 +52,27 @@ GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")  # e.g., "my-dealer-videos"
 GCS_CREDENTIALS_PATH = os.getenv("GCS_CREDENTIALS_PATH", "")  # Path to service account JSON (optional if using ADC)
 GCS_PUBLIC_URL_BASE = os.getenv("GCS_PUBLIC_URL_BASE", "")  # Custom domain or leave empty for default GCS URL
 
-# Cost per second by engine and quality
-COST_PER_SECOND = {
+# Flat cost per video by engine and quality (actual API billing rates)
+COST_PER_VIDEO = {
     "sora": {
-        "fast": 0.10,
-        "standard": 0.30,
-        "pro": 0.50,
+        "fast": 1.20,
+        "standard": 3.00,
+        "pro": 6.00,
+    },
+    "veo": {
+        "fast": 0.50,
+        "standard": 1.50,
+        "pro": 4.00,
     },
 }
 
-# Sora 2 accepts 5, 10, 15, or 20s clips
-CLIP_DURATION = {
-    "sora": 20,
-}
+# Gemini API cost per extraction call
+GEMINI_COST_PER_CALL = 0.02
 
 
 def get_cost_per_video(engine: str, quality: str) -> float:
-    """Calculate estimated cost for one video (single clip in new workflow)."""
-    cost_sec = COST_PER_SECOND.get(engine, {}).get(quality, 0.15)
-    clip_dur = CLIP_DURATION.get(engine, 8)
-    return clip_dur * cost_sec
+    """Get the flat cost for one video generation."""
+    return COST_PER_VIDEO.get(engine, {}).get(quality, 1.20)
 
 
 def validate_config():
