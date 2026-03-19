@@ -42,6 +42,13 @@ app = Flask(__name__)
 
 # Initialize database on startup
 init_db()
+
+# Restore persisted data from JSON backups (survives session restarts)
+from utils.data_persistence import restore_all
+restored = restore_all()
+if restored:
+    logger.info("Restored session data from persistent JSON backups")
+
 seed_default_templates()
 logger.info("Application starting — PRIMARY_VIDEO_ENGINE=%s", settings.PRIMARY_VIDEO_ENGINE)
 
