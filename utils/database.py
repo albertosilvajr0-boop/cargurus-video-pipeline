@@ -50,6 +50,7 @@ def init_db():
             -- Generated content
             video_script TEXT,
             video_path TEXT,
+            video_url TEXT,  -- GCS public URL (if cloud storage is enabled)
             video_engine TEXT,  -- veo or sora
             video_cost REAL DEFAULT 0.0,
             prompt_template_id INTEGER,  -- which prompt template was used
@@ -109,6 +110,11 @@ def init_db():
         conn.execute("SELECT prompt_template_id FROM vehicles LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE vehicles ADD COLUMN prompt_template_id INTEGER")
+    # Migrate: add video_url column if missing (existing databases)
+    try:
+        conn.execute("SELECT video_url FROM vehicles LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN video_url TEXT")
     conn.commit()
     conn.close()
 

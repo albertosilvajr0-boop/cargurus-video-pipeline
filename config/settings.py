@@ -47,6 +47,11 @@ OVERLAY_CTA_TEXT = os.getenv("OVERLAY_CTA_TEXT", "Call Today!")
 OVERLAY_PRICE_POSITION = os.getenv("OVERLAY_PRICE_POSITION", "top-right")  # top-left, top-right
 OVERLAY_BOTTOM_BAR_COLOR = os.getenv("OVERLAY_BOTTOM_BAR_COLOR", "#000000CC")  # RGBA hex
 
+# Google Cloud Storage (for video persistence)
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")  # e.g., "my-dealer-videos"
+GCS_CREDENTIALS_PATH = os.getenv("GCS_CREDENTIALS_PATH", "")  # Path to service account JSON (optional if using ADC)
+GCS_PUBLIC_URL_BASE = os.getenv("GCS_PUBLIC_URL_BASE", "")  # Custom domain or leave empty for default GCS URL
+
 # Cost per second by engine and quality
 COST_PER_SECOND = {
     "sora": {

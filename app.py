@@ -37,6 +37,7 @@ from utils.database import (
     save_branding_settings, get_branding_settings,
 )
 from utils.cost_tracker import CostTracker
+from utils.cloud_storage import upload_video as gcs_upload_video, is_gcs_enabled
 
 app = Flask(__name__)
 
@@ -347,16 +348,27 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             update_vehicle_status(vehicle_id, "error", error_message="Overlay compositing failed")
             return
 
+        # --- Step 5: Upload to GCS (if configured) ---
+        video_url = None
+        if is_gcs_enabled():
+            update_job(status="uploading", progress="Uploading video to cloud storage...")
+            video_url = gcs_upload_video(final_path)
+            if video_url:
+                logger.info("Video uploaded to GCS: %s", video_url)
+            else:
+                logger.warning("GCS upload failed — video is still available locally")
+
         # --- Done ---
         cost_tracker = CostTracker()
-        update_vehicle_status(
-            vehicle_id,
-            "video_complete",
+        status_kwargs = dict(
             video_path=final_path,
             video_engine="sora",
             video_cost=cost_tracker.session_cost,
             video_generated_at=datetime.now().isoformat(),
         )
+        if video_url:
+            status_kwargs["video_url"] = video_url
+        update_vehicle_status(vehicle_id, "video_complete", **status_kwargs)
 
         caption = script_info.get("caption", "")
         update_job(
@@ -364,6 +376,7 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
             progress="Video ready!",
             video_path=final_path,
             video_filename=Path(final_path).name,
+            video_url=video_url,
             caption=caption,
         )
 
@@ -489,16 +502,27 @@ def _process_upload(
             update_vehicle_status(vehicle_id, "error", error_message="Overlay compositing failed")
             return
 
+        # --- Step 4: Upload to GCS (if configured) ---
+        video_url = None
+        if is_gcs_enabled():
+            update_job(status="uploading", progress="Uploading video to cloud storage...")
+            video_url = gcs_upload_video(final_path)
+            if video_url:
+                logger.info("Video uploaded to GCS: %s", video_url)
+            else:
+                logger.warning("GCS upload failed — video is still available locally")
+
         # --- Done ---
         cost_tracker = CostTracker()
-        update_vehicle_status(
-            vehicle_id,
-            "video_complete",
+        status_kwargs = dict(
             video_path=final_path,
             video_engine="sora",
             video_cost=cost_tracker.session_cost,
             video_generated_at=datetime.now().isoformat(),
         )
+        if video_url:
+            status_kwargs["video_url"] = video_url
+        update_vehicle_status(vehicle_id, "video_complete", **status_kwargs)
 
         caption = script_info.get("caption", "")
         update_job(
@@ -506,6 +530,7 @@ def _process_upload(
             progress="Video ready!",
             video_path=final_path,
             video_filename=Path(final_path).name,
+            video_url=video_url,
             caption=caption,
         )
 
