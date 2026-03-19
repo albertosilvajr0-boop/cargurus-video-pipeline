@@ -44,11 +44,17 @@ app = Flask(__name__)
 # Initialize database on startup
 init_db()
 
-# Restore persisted data from JSON backups (survives session restarts)
-from utils.data_persistence import restore_all
+# Restore persisted data from Firestore/JSON backups (survives container restarts)
+from utils.data_persistence import restore_all, _get_firestore
+_fs_client = _get_firestore()
+if _fs_client:
+    logger.info("Firestore connected — data will persist across container restarts")
+else:
+    logger.warning("Firestore NOT available — data will be LOST on container restart! "
+                    "Enable the Firestore API and ensure the service account has datastore.user role.")
 restored = restore_all()
 if restored:
-    logger.info("Restored session data from persistent JSON backups")
+    logger.info("Restored session data from persistent backup")
 
 seed_default_templates()
 logger.info("Application starting — PRIMARY_VIDEO_ENGINE=%s", settings.PRIMARY_VIDEO_ENGINE)
@@ -803,6 +809,48 @@ def api_recent_logs():
 @app.route("/health")
 def health_check():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+
+@app.route("/api/persistence-status")
+def api_persistence_status():
+    """Diagnostic endpoint to check Firestore connectivity and data persistence."""
+    from utils.data_persistence import _get_firestore, _firestore_available, _load_from_firestore
+    from utils.data_persistence import FS_TEMPLATES_DOC, FS_VEHICLES_DOC, FS_BRANDING_DOC
+
+    result = {
+        "firestore_available": _firestore_available,
+        "sqlite_counts": {},
+        "firestore_counts": {},
+    }
+
+    # Check SQLite counts
+    from utils.database import get_connection
+    try:
+        conn = get_connection()
+        for table in ["prompt_templates", "vehicles", "branding_settings"]:
+            cursor = conn.execute(f"SELECT COUNT(*) as count FROM {table}")
+            result["sqlite_counts"][table] = cursor.fetchone()["count"]
+        conn.close()
+    except Exception as e:
+        result["sqlite_error"] = str(e)
+
+    # Try Firestore connection
+    client = _get_firestore()
+    if client:
+        result["firestore_available"] = True
+        for doc_name, label in [(FS_TEMPLATES_DOC, "prompt_templates"),
+                                 (FS_VEHICLES_DOC, "vehicles"),
+                                 (FS_BRANDING_DOC, "branding")]:
+            data = _load_from_firestore(doc_name)
+            if data:
+                result["firestore_counts"][label] = len(data) if isinstance(data, list) else 1
+            else:
+                result["firestore_counts"][label] = 0
+    else:
+        result["firestore_available"] = False
+        result["firestore_error"] = "Could not initialize Firestore client. Check that Firestore API is enabled and the service account has permissions."
+
+    return jsonify(result)
 
 
 if __name__ == "__main__":
