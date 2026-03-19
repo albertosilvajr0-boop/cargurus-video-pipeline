@@ -29,25 +29,45 @@ _commit_timer = None
 _commit_lock = threading.Lock()
 
 
-def _git_commit_data():
-    """Commit data/ JSON files to git so they survive environment restarts."""
+def _git_commit_and_push():
+    """Commit and push data/ and video files to git so they survive environment restarts."""
     try:
+        # Stage data JSON files
         subprocess.run(
             ["git", "add", "data/prompt_templates.json", "data/vehicles.json", "data/branding.json"],
             cwd=str(PROJECT_ROOT), capture_output=True, timeout=10,
         )
+        # Stage any video files (force-add since they may be gitignored)
+        videos_dir = PROJECT_ROOT / "output" / "videos"
+        if videos_dir.exists():
+            video_files = list(videos_dir.glob("*.mp4"))
+            if video_files:
+                subprocess.run(
+                    ["git", "add", "-f"] + [str(f) for f in video_files],
+                    cwd=str(PROJECT_ROOT), capture_output=True, timeout=30,
+                )
+        # Check if there's anything to commit
         result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet", "--", "data/"],
+            ["git", "diff", "--cached", "--quiet"],
             cwd=str(PROJECT_ROOT), capture_output=True, timeout=10,
         )
         if result.returncode != 0:  # There are staged changes
             subprocess.run(
-                ["git", "commit", "-m", "Auto-save session data (templates, vehicles, branding)"],
-                cwd=str(PROJECT_ROOT), capture_output=True, timeout=15,
+                ["git", "commit", "-m", "Auto-save session data and videos"],
+                cwd=str(PROJECT_ROOT), capture_output=True, timeout=30,
             )
             logger.info("Auto-committed data files to git for persistence")
+            # Push to remote so data survives environment restarts
+            push_result = subprocess.run(
+                ["git", "push"],
+                cwd=str(PROJECT_ROOT), capture_output=True, timeout=60,
+            )
+            if push_result.returncode == 0:
+                logger.info("Auto-pushed session data to remote")
+            else:
+                logger.warning("Auto-push failed: %s", push_result.stderr.decode(errors="replace"))
     except Exception as e:
-        logger.warning("Failed to auto-commit data files: %s", e)
+        logger.warning("Failed to auto-commit/push data files: %s", e)
 
 
 def _schedule_git_commit():
@@ -56,7 +76,7 @@ def _schedule_git_commit():
     with _commit_lock:
         if _commit_timer is not None:
             _commit_timer.cancel()
-        _commit_timer = threading.Timer(5.0, _git_commit_data)
+        _commit_timer = threading.Timer(5.0, _git_commit_and_push)
         _commit_timer.daemon = True
         _commit_timer.start()
 
