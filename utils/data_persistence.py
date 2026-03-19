@@ -106,10 +106,12 @@ def export_prompt_templates():
     from utils.database import get_all_prompt_templates
     templates = get_all_prompt_templates()
     # Save to Firestore (primary)
-    _save_to_firestore(FS_TEMPLATES_DOC, templates)
-    # Save to local JSON (fallback)
+    saved = _save_to_firestore(FS_TEMPLATES_DOC, templates)
+    if not saved:
+        logger.warning("Templates NOT saved to Firestore — will be lost on restart!")
+    # Save to local JSON (fallback — only survives within same container)
     TEMPLATES_FILE.write_text(json.dumps(templates, indent=2, default=str))
-    logger.info("Exported %d prompt templates", len(templates))
+    logger.info("Exported %d prompt templates (firestore=%s)", len(templates), saved)
 
 
 def export_vehicles():
@@ -117,10 +119,12 @@ def export_vehicles():
     from utils.database import get_all_vehicles
     vehicles = get_all_vehicles()
     # Save to Firestore (primary)
-    _save_to_firestore(FS_VEHICLES_DOC, vehicles)
-    # Save to local JSON (fallback)
+    saved = _save_to_firestore(FS_VEHICLES_DOC, vehicles)
+    if not saved:
+        logger.warning("Vehicles NOT saved to Firestore — will be lost on restart!")
+    # Save to local JSON (fallback — only survives within same container)
     VEHICLES_FILE.write_text(json.dumps(vehicles, indent=2, default=str))
-    logger.info("Exported %d vehicles", len(vehicles))
+    logger.info("Exported %d vehicles (firestore=%s)", len(vehicles), saved)
 
 
 def export_branding():
@@ -129,10 +133,12 @@ def export_branding():
     branding = get_branding_settings()
     if branding:
         # Save to Firestore (primary)
-        _save_to_firestore(FS_BRANDING_DOC, branding)
-        # Save to local JSON (fallback)
+        saved = _save_to_firestore(FS_BRANDING_DOC, branding)
+        if not saved:
+            logger.warning("Branding NOT saved to Firestore — will be lost on restart!")
+        # Save to local JSON (fallback — only survives within same container)
         BRANDING_FILE.write_text(json.dumps(branding, indent=2, default=str))
-        logger.info("Exported branding settings")
+        logger.info("Exported branding settings (firestore=%s)", saved)
 
 
 def export_all():
