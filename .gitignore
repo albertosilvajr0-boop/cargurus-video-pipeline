@@ -44,3 +44,6 @@ _temp_concat.mp4
 !output/stickers/.gitkeep
 !output/videos/.gitkeep
 !output/scripts/.gitkeep
+
+# Persistent data backups (tracked in git for session persistence)
+!data/

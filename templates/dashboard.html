@@ -1324,7 +1324,7 @@
             document.getElementById('progressSection').classList.remove('active');
             document.getElementById('videoResult').classList.add('active');
 
-            const videoUrl = `/videos/${job.video_filename}`;
+            const videoUrl = job.video_url || `/videos/${job.video_filename}`;
             document.getElementById('resultVideo').src = videoUrl;
             document.getElementById('downloadLink').href = videoUrl;
             document.getElementById('downloadLink').download = job.video_filename;
@@ -1532,8 +1532,9 @@
                 const label = getJobLabel(job);
                 const statusText = job.progress || job.status.replace(/_/g, ' ');
                 const fillClass = job.status === 'complete' ? 'complete' : job.status === 'error' ? 'error' : '';
+                const dlUrl = job.video_url || `/videos/${job.video_filename}`;
                 const actions = job.status === 'complete'
-                    ? `<a class="btn" href="/videos/${job.video_filename}" download style="padding:3px 10px;font-size:0.75rem">Download</a>`
+                    ? `<a class="btn" href="${dlUrl}" download style="padding:3px 10px;font-size:0.75rem">Download</a>`
                     : job.status === 'error'
                     ? `<button class="btn" style="padding:3px 10px;font-size:0.75rem;color:var(--red)" onclick="dismissJob('${jid}')">Dismiss</button>`
                     : `<div class="spinner-sm"></div>`;
@@ -1870,7 +1871,7 @@
                     if (Date.now() - video.timestamp < 24 * 60 * 60 * 1000) {
                         document.getElementById('uploadForm').style.display = 'none';
                         document.getElementById('videoResult').classList.add('active');
-                        const videoUrl = `/videos/${video.video_filename}`;
+                        const videoUrl = video.video_url || `/videos/${video.video_filename}`;
                         document.getElementById('resultVideo').src = videoUrl;
                         document.getElementById('downloadLink').href = videoUrl;
                         document.getElementById('downloadLink').download = video.video_filename;
@@ -1960,11 +1961,11 @@
                     }
                 }
 
-                if (v.video_path) {
-                    const filename = v.video_path.split('/').pop();
+                if (v.video_path || v.video_url) {
+                    const vidSrc = v.video_url || `/videos/${v.video_path.split('/').pop()}`;
                     html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Video</h3>`;
-                    html += `<video controls style="width:100%;max-height:400px;border-radius:8px" src="/videos/${filename}"></video>`;
-                    html += `<div style="margin-top:8px"><a href="/videos/${filename}" download class="btn" style="text-decoration:none">Download</a></div></div>`;
+                    html += `<video controls style="width:100%;max-height:400px;border-radius:8px" src="${vidSrc}"></video>`;
+                    html += `<div style="margin-top:8px"><a href="${vidSrc}" download class="btn" style="text-decoration:none">Download</a></div></div>`;
                 }
 
                 if (v.script_parsed && v.script_parsed.script && v.script_parsed.script.caption) {

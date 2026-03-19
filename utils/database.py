@@ -50,6 +50,7 @@ def init_db():
             -- Generated content
             video_script TEXT,
             video_path TEXT,
+            video_url TEXT,  -- GCS public URL (if cloud storage is enabled)
             video_engine TEXT,  -- veo or sora
             video_cost REAL DEFAULT 0.0,
             prompt_template_id INTEGER,  -- which prompt template was used
@@ -109,6 +110,11 @@ def init_db():
         conn.execute("SELECT prompt_template_id FROM vehicles LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE vehicles ADD COLUMN prompt_template_id INTEGER")
+    # Migrate: add video_url column if missing (existing databases)
+    try:
+        conn.execute("SELECT video_url FROM vehicles LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN video_url TEXT")
     conn.commit()
     conn.close()
 
@@ -117,11 +123,11 @@ def upsert_vehicle(vehicle_data: dict) -> int:
     """Insert or update a vehicle record. Returns the vehicle ID."""
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     # Check if vehicle exists
     cursor.execute("SELECT id FROM vehicles WHERE cargurus_id = ?", (vehicle_data.get("cargurus_id"),))
     row = cursor.fetchone()
-    
+
     if row:
         # Update existing
         vehicle_id = row["id"]
@@ -134,22 +140,23 @@ def upsert_vehicle(vehicle_data: dict) -> int:
         fields.append("updated_at = ?")
         values.append(datetime.now().isoformat())
         values.append(vehicle_id)
-        
+
         cursor.execute(f"UPDATE vehicles SET {', '.join(fields)} WHERE id = ?", values)
     else:
         # Insert new
         columns = list(vehicle_data.keys())
         placeholders = ", ".join(["?"] * len(columns))
         values = [vehicle_data[col] for col in columns]
-        
+
         cursor.execute(
             f"INSERT INTO vehicles ({', '.join(columns)}) VALUES ({placeholders})",
             values
         )
         vehicle_id = cursor.lastrowid
-    
+
     conn.commit()
     conn.close()
+    _auto_export_vehicles()
     return vehicle_id
 
 
@@ -158,15 +165,16 @@ def update_vehicle_status(vehicle_id: int, status: str, **kwargs):
     conn = get_connection()
     fields = ["status = ?", "updated_at = ?"]
     values = [status, datetime.now().isoformat()]
-    
+
     for key, value in kwargs.items():
         fields.append(f"{key} = ?")
         values.append(value)
-    
+
     values.append(vehicle_id)
     conn.execute(f"UPDATE vehicles SET {', '.join(fields)} WHERE id = ?", values)
     conn.commit()
     conn.close()
+    _auto_export_vehicles()
 
 
 def get_vehicles_by_status(status: str) -> list:
@@ -251,6 +259,8 @@ def retry_failed_vehicles(target_status: str = "scraped") -> int:
     count = cursor.rowcount
     conn.commit()
     conn.close()
+    if count > 0:
+        _auto_export_vehicles()
     return count
 
 
@@ -299,6 +309,7 @@ def seed_default_templates():
             ("Showroom Video", SHOWROOM_VIDEO_PROMPT),
         )
         conn.commit()
+        _auto_export_templates()
     conn.close()
 
 
@@ -330,6 +341,7 @@ def create_prompt_template(display_name: str, prompt_text: str) -> int:
     template_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    _auto_export_templates()
     return template_id
 
 
@@ -343,6 +355,8 @@ def update_prompt_template(template_id: int, display_name: str, prompt_text: str
     updated = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if updated:
+        _auto_export_templates()
     return updated
 
 
@@ -353,6 +367,8 @@ def delete_prompt_template(template_id: int) -> bool:
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if deleted:
+        _auto_export_templates()
     return deleted
 
 
@@ -378,6 +394,7 @@ def save_branding_settings(dealer_name: str, dealer_phone: str, dealer_address: 
     )
     conn.commit()
     conn.close()
+    _auto_export_branding()
 
 
 def get_branding_settings() -> dict | None:
@@ -404,4 +421,35 @@ def retry_vehicle_by_id(vehicle_id: int, target_status: str = "scraped") -> bool
     updated = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if updated:
+        _auto_export_vehicles()
     return updated
+
+
+# --- Auto-export helpers (persist DB data to git-tracked JSON files) ---
+
+def _auto_export_templates():
+    """Export prompt templates to JSON backup after any write."""
+    try:
+        from utils.data_persistence import export_prompt_templates
+        export_prompt_templates()
+    except Exception:
+        pass  # Don't let export failures break the main operation
+
+
+def _auto_export_vehicles():
+    """Export vehicles to JSON backup after any write."""
+    try:
+        from utils.data_persistence import export_vehicles
+        export_vehicles()
+    except Exception:
+        pass
+
+
+def _auto_export_branding():
+    """Export branding to JSON backup after any write."""
+    try:
+        from utils.data_persistence import export_branding
+        export_branding()
+    except Exception:
+        pass
