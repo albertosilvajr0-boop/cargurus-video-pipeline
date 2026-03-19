@@ -446,14 +446,7 @@
             .video-actions { flex-direction: column; }
             .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
         }
-        /* Global Job Tracker */
-        .global-jobs-bar {
-            background: var(--surface2);
-            border-bottom: 1px solid var(--border);
-            display: none;
-        }
-        .global-jobs-bar.active { display: block; }
-        .global-jobs-bar .container { padding-top: 10px; padding-bottom: 10px; }
+        /* Job Tracker (inside My Videos tab) */
         .job-tracker-item {
             display: flex;
             align-items: center;
@@ -525,17 +518,6 @@
     </style>
 </head>
 <body>
-    <!-- Global Job Progress Bar -->
-    <div class="global-jobs-bar" id="globalJobsBar">
-        <div class="container">
-            <div class="jobs-header">
-                <span class="jobs-header-title">Video Generation Queue</span>
-                <button class="btn" style="padding:3px 10px;font-size:0.75rem" onclick="createAnotherVideo()">+ New Video</button>
-            </div>
-            <div id="globalJobsList"></div>
-        </div>
-    </div>
-
     <header>
         <div class="container">
             <h1>Vehicle Video Pipeline</h1>
@@ -773,6 +755,15 @@
 
         <!-- ========== TAB: Videos ========== -->
         <div id="tab-videos" class="tab-content">
+            <!-- Job Queue (moved from global bar) -->
+            <div id="globalJobsBar" class="form-section" style="display:none;margin-top:24px;border-color:var(--accent)">
+                <div class="jobs-header">
+                    <span class="jobs-header-title">Video Generation Queue</span>
+                    <button class="btn" style="padding:3px 10px;font-size:0.75rem" onclick="createAnotherVideo()">+ New Video</button>
+                </div>
+                <div id="globalJobsList"></div>
+            </div>
+
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="label">Total Vehicles</div>
@@ -1626,11 +1617,11 @@
             const jobIds = Object.keys(trackedJobs);
 
             if (jobIds.length === 0) {
-                bar.classList.remove('active');
+                bar.style.display = 'none';
                 return;
             }
 
-            bar.classList.add('active');
+            bar.style.display = 'block';
             list.innerHTML = jobIds.map(jid => {
                 const job = trackedJobs[jid];
                 const pct = getJobProgress(job.status);
@@ -1739,6 +1730,7 @@
         function createAnotherVideo() {
             // Navigate to Create Video tab and reset the form
             switchToTab('upload');
+            setMode('upload');
             // Show the upload form even if a result/progress is showing
             document.getElementById('uploadForm').style.display = 'block';
             document.getElementById('progressSection').classList.remove('active');
@@ -1930,77 +1922,23 @@
             if (el) el.addEventListener('input', persistFormInputs);
         });
 
-        // Save last video result when shown
-        const _origShowVideoResult = showVideoResult;
-        showVideoResult = function(job) {
-            _origShowVideoResult(job);
-            try {
-                localStorage.setItem(STORAGE_KEYS.lastVideo, JSON.stringify({
-                    video_filename: job.video_filename,
-                    caption: job.caption || '',
-                    timestamp: Date.now()
-                }));
-            } catch(e) {}
-        };
-
         // Clear saved video on "Create Another"
         const _origResetUpload = resetUpload;
         resetUpload = function() {
             _origResetUpload();
-            try { localStorage.removeItem(STORAGE_KEYS.lastVideo); } catch(e) {}
-            persistFormInputs();
+            setMode('upload');
         };
 
-        // Restore state on page load
-        (function restoreState() {
+        // Initialize on page load: always start fresh on Create Video / Upload Photos
+        (function initOnLoad() {
             try {
-                // Restore form inputs
-                const vin = localStorage.getItem(STORAGE_KEYS.formVin);
-                const price = localStorage.getItem(STORAGE_KEYS.formPrice);
-                const phone = localStorage.getItem(STORAGE_KEYS.formPhone);
-                const addr = localStorage.getItem(STORAGE_KEYS.formAddress);
-                const cta = localStorage.getItem(STORAGE_KEYS.formCTA);
-                const mode = localStorage.getItem(STORAGE_KEYS.formMode);
+                // Always start on Create Video tab with Upload Photos mode
+                setMode('upload');
 
-                if (vin) { document.getElementById('vinInput').value = vin; onVinInput(document.getElementById('vinInput')); }
-                if (price) document.getElementById('vinPrice').value = price;
-                if (phone) document.getElementById('vinPhone').value = phone;
-                if (addr) document.getElementById('vinAddress').value = addr;
-                if (cta) document.getElementById('vinCTA').value = cta;
-                if (mode) setMode(mode);
+                // Clear any stale video result so the form shows clean
+                localStorage.removeItem(STORAGE_KEYS.lastVideo);
 
-                // Restore last video result (if generated within last 24 hours)
-                const savedVideo = localStorage.getItem(STORAGE_KEYS.lastVideo);
-                if (savedVideo) {
-                    const video = JSON.parse(savedVideo);
-                    if (Date.now() - video.timestamp < 24 * 60 * 60 * 1000) {
-                        document.getElementById('uploadForm').style.display = 'none';
-                        document.getElementById('videoResult').classList.add('active');
-                        const videoUrl = video.video_url || `/videos/${video.video_filename}`;
-                        document.getElementById('resultVideo').src = videoUrl;
-                        document.getElementById('downloadLink').href = videoUrl;
-                        document.getElementById('downloadLink').download = video.video_filename;
-                        if (video.caption) {
-                            document.getElementById('captionText').textContent = video.caption;
-                            document.getElementById('captionBox').style.display = 'block';
-                        } else {
-                            document.getElementById('captionBox').style.display = 'none';
-                        }
-                        // Init trimmer for restored video
-                        currentVideoFilename = video.video_filename;
-                        initTrimmer();
-                    } else {
-                        localStorage.removeItem(STORAGE_KEYS.lastVideo);
-                    }
-                }
-
-                // Restore active tab (do this last so tab content loads properly)
-                const savedTab = localStorage.getItem(STORAGE_KEYS.tab);
-                if (savedTab && savedTab !== 'upload') {
-                    switchToTab(savedTab);
-                }
-
-                // Restore tracked jobs and resume polling
+                // Restore tracked jobs into My Videos queue and resume polling
                 loadTrackedJobs();
                 renderGlobalJobs();
                 const hasActive = Object.values(trackedJobs).some(
@@ -2008,7 +1946,7 @@
                 );
                 if (hasActive) startGlobalPoll();
             } catch(e) {
-                console.error('Failed to restore state:', e);
+                console.error('Failed to initialize:', e);
             }
         })();
 
