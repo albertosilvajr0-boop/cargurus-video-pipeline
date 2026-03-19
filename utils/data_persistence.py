@@ -8,6 +8,8 @@ On startup, if the database is empty, data is restored from these JSON files.
 """
 
 import json
+import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 from config.settings import PROJECT_ROOT
@@ -22,6 +24,42 @@ TEMPLATES_FILE = DATA_DIR / "prompt_templates.json"
 VEHICLES_FILE = DATA_DIR / "vehicles.json"
 BRANDING_FILE = DATA_DIR / "branding.json"
 
+# Debounce timer for git commits (avoid committing on every single write)
+_commit_timer = None
+_commit_lock = threading.Lock()
+
+
+def _git_commit_data():
+    """Commit data/ JSON files to git so they survive environment restarts."""
+    try:
+        subprocess.run(
+            ["git", "add", "data/prompt_templates.json", "data/vehicles.json", "data/branding.json"],
+            cwd=str(PROJECT_ROOT), capture_output=True, timeout=10,
+        )
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--", "data/"],
+            cwd=str(PROJECT_ROOT), capture_output=True, timeout=10,
+        )
+        if result.returncode != 0:  # There are staged changes
+            subprocess.run(
+                ["git", "commit", "-m", "Auto-save session data (templates, vehicles, branding)"],
+                cwd=str(PROJECT_ROOT), capture_output=True, timeout=15,
+            )
+            logger.info("Auto-committed data files to git for persistence")
+    except Exception as e:
+        logger.warning("Failed to auto-commit data files: %s", e)
+
+
+def _schedule_git_commit():
+    """Schedule a debounced git commit (waits 5s after last write to batch changes)."""
+    global _commit_timer
+    with _commit_lock:
+        if _commit_timer is not None:
+            _commit_timer.cancel()
+        _commit_timer = threading.Timer(5.0, _git_commit_data)
+        _commit_timer.daemon = True
+        _commit_timer.start()
+
 
 def export_prompt_templates():
     """Export all prompt templates to JSON file."""
@@ -29,6 +67,7 @@ def export_prompt_templates():
     templates = get_all_prompt_templates()
     TEMPLATES_FILE.write_text(json.dumps(templates, indent=2, default=str))
     logger.info("Exported %d prompt templates to %s", len(templates), TEMPLATES_FILE.name)
+    _schedule_git_commit()
 
 
 def export_vehicles():
@@ -37,6 +76,7 @@ def export_vehicles():
     vehicles = get_all_vehicles()
     VEHICLES_FILE.write_text(json.dumps(vehicles, indent=2, default=str))
     logger.info("Exported %d vehicles to %s", len(vehicles), VEHICLES_FILE.name)
+    _schedule_git_commit()
 
 
 def export_branding():
@@ -46,6 +86,7 @@ def export_branding():
     if branding:
         BRANDING_FILE.write_text(json.dumps(branding, indent=2, default=str))
         logger.info("Exported branding settings to %s", BRANDING_FILE.name)
+        _schedule_git_commit()
 
 
 def export_all():

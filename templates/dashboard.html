@@ -566,12 +566,12 @@
                 </div>
 
                 <div style="display:flex;gap:0;margin:16px 0 0 0;background:var(--surface);border-radius:10px;border:1px solid var(--border);overflow:hidden;width:fit-content">
-                    <button class="mode-toggle active" id="modeVin" onclick="setMode('vin')" style="padding:10px 24px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s">Paste VIN</button>
-                    <button class="mode-toggle" id="modeUpload" onclick="setMode('upload')" style="padding:10px 24px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:0.9rem;transition:all 0.2s">Upload Photos</button>
+                    <button class="mode-toggle" id="modeUpload" onclick="setMode('upload')" style="padding:10px 24px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s">Upload Photos</button>
+                    <button class="mode-toggle" id="modeVin" onclick="setMode('vin')" style="padding:10px 24px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:0.9rem;transition:all 0.2s">Paste VIN</button>
                 </div>
 
                 <!-- ===== VIN MODE ===== -->
-                <div id="vinMode">
+                <div id="vinMode" style="display:none">
                     <div class="form-section" style="margin-top:16px">
                         <h3>Enter VIN Number</h3>
                         <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
@@ -634,7 +634,7 @@
                 </div>
 
                 <!-- ===== UPLOAD MODE ===== -->
-                <div id="uploadMode" style="display:none">
+                <div id="uploadMode">
                     <!-- Vehicle Photos -->
                     <div class="upload-zone" id="photoZone">
                         <h3>Vehicle Photos</h3>
@@ -983,7 +983,7 @@
         }
 
         // ==================== MODE TOGGLE ====================
-        let currentMode = 'vin';
+        let currentMode = 'upload';
         let decodedVinSpecs = null;
 
         function setMode(mode) {
