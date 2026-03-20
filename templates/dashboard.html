@@ -2185,10 +2185,14 @@
 
                 container.innerHTML = groups.map(g => {
                     const date = new Date(g.last_added).toLocaleDateString();
+                    const displayName = g.label && g.label !== g.media_group ? g.label : g.media_group;
                     return `<div class="form-section" style="margin-bottom:12px;cursor:default">
                         <div style="display:flex;justify-content:space-between;align-items:center">
                             <div>
-                                <h3 style="margin:0;font-size:1rem">${escapeHtml(g.media_group)}</h3>
+                                <div style="display:flex;align-items:center;gap:6px">
+                                    <h3 id="media-name-${g.media_group}" style="margin:0;font-size:1rem">${escapeHtml(displayName)}</h3>
+                                    <button onclick="renameMediaGroup('${escapeHtml(g.media_group)}', '${escapeHtml(displayName).replace(/'/g, "\\'")}')" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:2px;font-size:0.85rem" title="Rename">&#9998;</button>
+                                </div>
                                 <span style="color:var(--muted);font-size:0.8rem">${g.count} file(s) &middot; Added ${date}</span>
                             </div>
                             <div style="display:flex;gap:8px">
@@ -2351,6 +2355,27 @@
                 status.textContent = 'Network error: ' + e.message;
                 status.style.color = 'var(--red)';
                 btn.disabled = false;
+            }
+        }
+
+        async function renameMediaGroup(group, currentName) {
+            const newName = prompt('Rename media group:', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            try {
+                const res = await fetch(`/api/media/group/${encodeURIComponent(group)}/rename`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: newName.trim() }),
+                });
+                if (res.ok) {
+                    loadMediaLibrary();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Failed to rename');
+                }
+            } catch (e) {
+                alert('Network error: ' + e.message);
             }
         }
 

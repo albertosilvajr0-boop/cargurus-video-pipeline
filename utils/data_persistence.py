@@ -22,6 +22,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEMPLATES_FILE = DATA_DIR / "prompt_templates.json"
 VEHICLES_FILE = DATA_DIR / "vehicles.json"
 BRANDING_FILE = DATA_DIR / "branding.json"
+MEDIA_LIBRARY_FILE = DATA_DIR / "media_library.json"
 
 # Firestore client (lazy-initialized)
 _firestore_client = None
@@ -33,6 +34,7 @@ FS_COLLECTION = "app_data"
 FS_TEMPLATES_DOC = "prompt_templates"
 FS_VEHICLES_DOC = "vehicles"
 FS_BRANDING_DOC = "branding"
+FS_MEDIA_LIBRARY_DOC = "media_library"
 
 
 def _get_firestore():
@@ -141,11 +143,23 @@ def export_branding():
         logger.info("Exported branding settings (firestore=%s)", saved)
 
 
+def export_media_library():
+    """Export all media library records to Firestore and local JSON file."""
+    from utils.database import get_all_media
+    items = get_all_media()
+    saved = _save_to_firestore(FS_MEDIA_LIBRARY_DOC, items)
+    if not saved:
+        logger.warning("Media library NOT saved to Firestore — labels will be lost on restart!")
+    MEDIA_LIBRARY_FILE.write_text(json.dumps(items, indent=2, default=str))
+    logger.info("Exported %d media library records (firestore=%s)", len(items), saved)
+
+
 def export_all():
     """Export all data to Firestore and JSON files."""
     export_prompt_templates()
     export_vehicles()
     export_branding()
+    export_media_library()
 
 
 # --- Restore functions (load from Firestore first, then JSON fallback) ---
@@ -291,11 +305,59 @@ def restore_branding():
     return True
 
 
+def restore_media_library():
+    """Restore media library records from Firestore (or JSON fallback) if DB is empty."""
+    from utils.database import get_connection
+    conn = get_connection()
+    cursor = conn.execute("SELECT COUNT(*) as count FROM media_library")
+    existing = cursor.fetchone()["count"]
+
+    if existing > 0:
+        conn.close()
+        return 0
+
+    # Try Firestore first
+    items = _load_from_firestore(FS_MEDIA_LIBRARY_DOC)
+
+    # Fall back to local JSON
+    if not items and MEDIA_LIBRARY_FILE.exists():
+        try:
+            items = json.loads(MEDIA_LIBRARY_FILE.read_text())
+            logger.info("Loaded media library from local JSON fallback")
+        except Exception:
+            items = None
+
+    if not items:
+        conn.close()
+        return 0
+
+    restored = 0
+    for item in items:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO media_library (id, label, file_path, file_name, file_type, media_group, thumbnail_url, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (item.get("id"), item.get("label", ""), item.get("file_path", ""),
+                 item.get("file_name", ""), item.get("file_type", "photo"),
+                 item.get("media_group", ""), item.get("thumbnail_url"),
+                 item.get("created_at", datetime.now().isoformat())),
+            )
+            restored += 1
+        except Exception as e:
+            logger.warning("Failed to restore media item %s: %s", item.get("id"), e)
+
+    conn.commit()
+    conn.close()
+    logger.info("Restored %d media library records from backup", restored)
+    return restored
+
+
 def restore_all():
     """Restore all data from Firestore/JSON backups (only if DB tables are empty)."""
     templates = restore_prompt_templates()
     vehicles = restore_vehicles()
     branding = restore_branding()
-    if templates or vehicles or branding:
+    media = restore_media_library()
+    if templates or vehicles or branding or media:
         logger.info("Session data restored from persistent backup")
-    return templates or vehicles or branding
+    return templates or vehicles or branding or media
