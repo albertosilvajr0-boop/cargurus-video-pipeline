@@ -38,7 +38,7 @@ from utils.database import (
     get_cost_analytics,
 )
 from utils.cost_tracker import CostTracker
-from utils.cloud_storage import upload_video as gcs_upload_video, is_gcs_enabled
+from utils.cloud_storage import upload_video as gcs_upload_video, is_gcs_enabled, upload_branding_asset, download_branding_asset
 
 app = Flask(__name__)
 
@@ -71,8 +71,18 @@ if _saved_branding:
         settings.DEALER_ADDRESS = _saved_branding["dealer_address"]
     if _saved_branding.get("dealer_website"):
         settings.DEALER_WEBSITE = _saved_branding["dealer_website"]
-    if _saved_branding.get("dealer_logo_path") and Path(_saved_branding["dealer_logo_path"]).exists():
-        settings.DEALER_LOGO_PATH = _saved_branding["dealer_logo_path"]
+    if _saved_branding.get("dealer_logo_path"):
+        _logo_path = _saved_branding["dealer_logo_path"]
+        if Path(_logo_path).exists():
+            settings.DEALER_LOGO_PATH = _logo_path
+        elif is_gcs_enabled():
+            # Logo file missing after cold restart — restore from GCS
+            _logo_blob = f"branding/{Path(_logo_path).name}"
+            if download_branding_asset(_logo_blob, _logo_path):
+                settings.DEALER_LOGO_PATH = _logo_path
+                logger.info("Restored dealer logo from GCS: %s", _logo_path)
+            else:
+                logger.warning("Dealer logo not found locally or in GCS: %s", _logo_path)
 
 # Track background jobs
 _jobs_lock = threading.Lock()
@@ -597,6 +607,9 @@ def api_save_branding():
         logo_path = settings.BRANDING_DIR / f"dealer_logo{ext}"
         logo.save(str(logo_path))
         settings.DEALER_LOGO_PATH = str(logo_path)
+
+        # Persist logo to GCS so it survives cold restarts
+        upload_branding_asset(str(logo_path))
 
     if request.form.get("phone"):
         settings.DEALER_PHONE = request.form["phone"]
