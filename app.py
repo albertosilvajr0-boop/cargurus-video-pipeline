@@ -40,12 +40,14 @@ from utils.database import (
     get_media_items_by_ids, delete_media_item, delete_media_group,
     update_media_group_label,
     delete_vehicle,
-    save_people_photo, get_all_people_photos, get_people_photo, delete_people_photo,
+    create_person, get_person, get_all_people, delete_person, update_person_name,
+    save_people_photo, get_all_people_photos, get_people_photo, get_photos_for_person, delete_people_photo,
 )
 from utils.cost_tracker import CostTracker
 from utils.cloud_storage import (
     upload_video as gcs_upload_video, download_video as gcs_download_video,
     is_gcs_enabled, upload_branding_asset, download_branding_asset,
+    upload_people_photo as gcs_upload_people_photo,
     upload_directory as gcs_upload_directory, download_directory as gcs_download_directory,
     list_prefixes as gcs_list_prefixes,
 )
@@ -122,6 +124,16 @@ if is_gcs_enabled():
                 _restored_media += count
     if _restored_media:
         logger.info("Restored %d media library files from GCS", _restored_media)
+
+    # Restore people photos (output/people/ — organized as people/<person_id>/ in GCS)
+    _people_prefixes = gcs_list_prefixes("people/")
+    _restored_people = 0
+    for prefix in _people_prefixes:
+        count = gcs_download_directory(prefix.rstrip("/"), str(settings.PEOPLE_DIR))
+        if count:
+            _restored_people += count
+    if _restored_people:
+        logger.info("Restored %d people photo files from GCS", _restored_people)
 
 # Track background jobs
 _jobs_lock = threading.Lock()
@@ -218,14 +230,16 @@ def api_upload_vehicle():
         "cta_text": request.form.get("cta_text", ""),
     }
 
-    # Person photo option: "ai" (let AI generate), or a people photo ID
+    # Person photo option: "ai" (let AI generate), or a person ID
     person_option = request.form.get("person_option", "ai")
     person_photo_path = None
     if person_option and person_option != "ai":
         try:
-            person_record = get_people_photo(int(person_option))
-            if person_record and Path(person_record["file_path"]).exists():
-                person_photo_path = person_record["file_path"]
+            photos = get_photos_for_person(int(person_option))
+            for ph in photos:
+                if Path(ph["file_path"]).exists():
+                    person_photo_path = ph["file_path"]
+                    break
         except (ValueError, TypeError):
             pass
 
@@ -284,14 +298,16 @@ def api_vin_generate():
         "cta_text": data.get("cta_text", ""),
     }
 
-    # Person photo option
+    # Person photo option: "ai" or a person ID
     person_option = data.get("person_option", "ai")
     person_photo_path = None
     if person_option and person_option != "ai":
         try:
-            person_record = get_people_photo(int(person_option))
-            if person_record and Path(person_record["file_path"]).exists():
-                person_photo_path = person_record["file_path"]
+            photos = get_photos_for_person(int(person_option))
+            for ph in photos:
+                if Path(ph["file_path"]).exists():
+                    person_photo_path = ph["file_path"]
+                    break
         except (ValueError, TypeError):
             pass
 
@@ -1044,14 +1060,16 @@ def api_media_generate_video():
     if prompt_template_id:
         prompt_template = get_prompt_template(int(prompt_template_id))
 
-    # Person photo option
+    # Person photo option: "ai" or a person ID
     person_option = data.get("person_option", "ai")
     person_photo_path = None
     if person_option and person_option != "ai":
         try:
-            person_record = get_people_photo(int(person_option))
-            if person_record and Path(person_record["file_path"]).exists():
-                person_photo_path = person_record["file_path"]
+            photos = get_photos_for_person(int(person_option))
+            for ph in photos:
+                if Path(ph["file_path"]).exists():
+                    person_photo_path = ph["file_path"]
+                    break
         except (ValueError, TypeError):
             pass
 
@@ -1065,58 +1083,106 @@ def api_media_generate_video():
     return jsonify({"job_id": job_id, "upload_id": upload_id, "status": "processing"})
 
 
-## --- People Photos API ---
+## --- People & People Photos API ---
 
-@app.route("/api/people/upload", methods=["POST"])
-def api_people_upload():
-    """
-    Upload a photo of a person to feature in videos.
+@app.route("/api/people", methods=["GET"])
+def api_people_list():
+    """List all people with their photos."""
+    return jsonify(get_all_people())
 
-    Form fields:
-      - photo: single image file (required)
+
+@app.route("/api/people", methods=["POST"])
+def api_people_create():
+    """Create a new person (no photos yet).
+
+    JSON body:
       - name: person's name or label (required)
     """
-    photo = request.files.get("photo")
-    if not photo or photo.filename == "":
-        return jsonify({"error": "A photo file is required"}), 400
-
-    name = request.form.get("name", "").strip()
-    if not name:
+    data = request.get_json()
+    if not data or not data.get("name", "").strip():
         return jsonify({"error": "A name is required"}), 400
-
-    ext = Path(photo.filename).suffix.lower() or ".jpg"
-    safe_name = f"person_{uuid.uuid4().hex[:10]}{ext}"
-    file_path = str(settings.PEOPLE_DIR / safe_name)
-    photo.save(file_path)
-
-    item_id = save_people_photo(
-        name=name,
-        file_path=file_path,
-        file_name=photo.filename or safe_name,
-    )
-
-    # Backup to GCS
-    if is_gcs_enabled():
-        from utils.cloud_storage import upload_branding_asset
-        upload_branding_asset(file_path, blob_prefix="people/")
-
-    return jsonify({
-        "status": "saved",
-        "id": item_id,
-        "name": name,
-        "file_name": photo.filename,
-    })
+    person_id = create_person(data["name"].strip())
+    return jsonify({"status": "created", "id": person_id, "name": data["name"].strip()})
 
 
-@app.route("/api/people")
-def api_people_list():
-    """List all people photos."""
-    return jsonify(get_all_people_photos())
+@app.route("/api/people/<int:person_id>", methods=["PATCH"])
+def api_people_update(person_id):
+    """Rename a person."""
+    data = request.get_json()
+    if not data or not data.get("name", "").strip():
+        return jsonify({"error": "A name is required"}), 400
+    if update_person_name(person_id, data["name"].strip()):
+        return jsonify({"status": "updated"})
+    return jsonify({"error": "Person not found"}), 404
 
 
-@app.route("/api/people/<int:photo_id>", methods=["DELETE"])
-def api_people_delete(photo_id):
-    """Delete a people photo."""
+@app.route("/api/people/<int:person_id>", methods=["DELETE"])
+def api_people_delete(person_id):
+    """Delete a person and all their photos."""
+    person = get_person(person_id)
+    if person:
+        photos = get_photos_for_person(person_id)
+        for photo in photos:
+            try:
+                Path(photo["file_path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+    if delete_person(person_id):
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "Person not found"}), 404
+
+
+@app.route("/api/people/<int:person_id>/photos", methods=["POST"])
+def api_people_photo_upload(person_id):
+    """Upload one or more photos for an existing person.
+
+    Form fields:
+      - photos: one or more image files (required)
+    Alternatively, create a new person on-the-fly:
+      - name: person's name (required only if person_id is 0)
+    """
+    # Allow person_id=0 to mean "create a new person first"
+    if person_id == 0:
+        name = request.form.get("name", "").strip()
+        if not name:
+            return jsonify({"error": "A name is required when creating a new person"}), 400
+        person_id = create_person(name)
+    else:
+        person = get_person(person_id)
+        if not person:
+            return jsonify({"error": "Person not found"}), 404
+
+    files = request.files.getlist("photos")
+    if not files or all(f.filename == "" for f in files):
+        return jsonify({"error": "At least one photo file is required"}), 400
+
+    saved = []
+    for photo in files:
+        if not photo or photo.filename == "":
+            continue
+        ext = Path(photo.filename).suffix.lower() or ".jpg"
+        safe_name = f"person_{person_id}_{uuid.uuid4().hex[:10]}{ext}"
+        file_path = str(settings.PEOPLE_DIR / safe_name)
+        photo.save(file_path)
+
+        photo_id = save_people_photo(
+            person_id=person_id,
+            file_path=file_path,
+            file_name=photo.filename or safe_name,
+        )
+
+        # Backup to GCS
+        if is_gcs_enabled():
+            gcs_upload_people_photo(file_path, person_id)
+
+        saved.append({"id": photo_id, "file_name": photo.filename})
+
+    return jsonify({"status": "saved", "person_id": person_id, "photos": saved})
+
+
+@app.route("/api/people/photos/<int:photo_id>", methods=["DELETE"])
+def api_people_photo_delete(photo_id):
+    """Delete a single people photo."""
     photo = get_people_photo(photo_id)
     if photo:
         try:
@@ -1136,6 +1202,30 @@ def serve_people_photo(filename):
 @app.route("/media/<path:filename>")
 def serve_media(filename):
     return send_from_directory(str(settings.MEDIA_DIR), filename)
+
+
+# --- GCS Status Check ---
+
+@app.route("/api/gcs/status")
+def api_gcs_status():
+    """Check whether Google Cloud Storage is configured and reachable."""
+    result = {
+        "enabled": is_gcs_enabled(),
+        "bucket": settings.GCS_BUCKET_NAME or None,
+        "credentials_path": settings.GCS_CREDENTIALS_PATH or None,
+        "public_url_base": settings.GCS_PUBLIC_URL_BASE or None,
+    }
+    if is_gcs_enabled():
+        try:
+            from utils.cloud_storage import _get_client
+            client = _get_client()
+            bucket = client.bucket(settings.GCS_BUCKET_NAME)
+            result["bucket_exists"] = bucket.exists()
+            result["reachable"] = True
+        except Exception as e:
+            result["reachable"] = False
+            result["error"] = f"{type(e).__name__}: {e}"
+    return jsonify(result)
 
 
 # --- File serving ---

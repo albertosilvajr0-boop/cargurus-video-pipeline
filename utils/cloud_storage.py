@@ -62,10 +62,8 @@ def upload_video(local_path: str, destination_blob: str | None = None) -> str | 
         return None
 
 
-def upload_branding_asset(local_path: str) -> str | None:
-    """Upload a branding asset (e.g. dealer logo) to GCS so it survives cold restarts.
-
-    Stored under 'branding/<filename>' in the bucket.
+def _upload_image(local_path: str, gcs_prefix: str) -> str | None:
+    """Upload an image file to GCS under the given prefix.
 
     Returns:
         GCS blob name on success, or None on failure.
@@ -75,16 +73,15 @@ def upload_branding_asset(local_path: str) -> str | None:
 
     local = Path(local_path)
     if not local.exists():
-        logger.error("Cannot upload branding asset — file not found: %s", local_path)
+        logger.error("Cannot upload — file not found: %s", local_path)
         return None
 
-    destination_blob = f"branding/{local.name}"
+    destination_blob = f"{gcs_prefix.strip('/')}/{local.name}"
     try:
         client = _get_client()
         bucket = client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(destination_blob)
 
-        # Detect content type from extension
         ext = local.suffix.lower()
         content_type = {
             ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -92,11 +89,28 @@ def upload_branding_asset(local_path: str) -> str | None:
         }.get(ext, "application/octet-stream")
 
         blob.upload_from_filename(str(local), content_type=content_type)
-        logger.info("Uploaded branding asset %s -> gs://%s/%s", local.name, GCS_BUCKET_NAME, destination_blob)
+        logger.info("Uploaded %s -> gs://%s/%s", local.name, GCS_BUCKET_NAME, destination_blob)
         return destination_blob
     except Exception as e:
-        logger.error("GCS branding upload failed for %s: %s: %s", local_path, type(e).__name__, e)
+        logger.error("GCS upload failed for %s: %s: %s", local_path, type(e).__name__, e)
         return None
+
+
+def upload_branding_asset(local_path: str) -> str | None:
+    """Upload a branding asset (e.g. dealer logo) to GCS.
+
+    Stored under 'branding/<filename>' in the bucket.
+    """
+    return _upload_image(local_path, "branding")
+
+
+def upload_people_photo(local_path: str, person_id: int) -> str | None:
+    """Upload a people photo to GCS under people/<person_id>/.
+
+    Returns:
+        GCS blob name on success, or None on failure.
+    """
+    return _upload_image(local_path, f"people/{person_id}")
 
 
 def download_branding_asset(blob_name: str, local_path: str) -> bool:

@@ -116,12 +116,19 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS people_photos (
+        CREATE TABLE IF NOT EXISTS people (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS people_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL,
             file_path TEXT NOT NULL,
             file_name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
         );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
@@ -134,6 +141,37 @@ def init_db():
         conn.execute("SELECT video_url FROM vehicles LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE vehicles ADD COLUMN video_url TEXT")
+    # Migrate: move people_photos.name into people table, add person_id
+    try:
+        conn.execute("SELECT person_id FROM people_photos LIMIT 1")
+    except sqlite3.OperationalError:
+        # Old schema: people_photos has a 'name' column but no person_id
+        rows = conn.execute("SELECT id, name, file_path, file_name, created_at FROM people_photos").fetchall()
+        conn.execute("DROP TABLE people_photos")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS people_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+            );
+        """)
+        # Re-insert old rows: each old row becomes a person + one photo
+        for r in rows:
+            cursor = conn.execute("INSERT INTO people (name, created_at) VALUES (?, ?)",
+                                  (r["name"], r["created_at"]))
+            person_id = cursor.lastrowid
+            conn.execute(
+                "INSERT INTO people_photos (person_id, file_path, file_name, created_at) VALUES (?, ?, ?, ?)",
+                (person_id, r["file_path"], r["file_name"], r["created_at"]),
+            )
     conn.commit()
     conn.close()
 
@@ -565,14 +603,69 @@ def update_media_group_label(group_name: str, new_label: str) -> bool:
     return updated
 
 
-### People Photos CRUD ###
+### People & People Photos CRUD ###
 
-def save_people_photo(name: str, file_path: str, file_name: str) -> int:
-    """Save a people photo to the library. Returns the new photo ID."""
+def create_person(name: str) -> int:
+    """Create a new person entry. Returns the person ID."""
+    conn = get_connection()
+    cursor = conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
+    person_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return person_id
+
+
+def get_person(person_id: int) -> dict | None:
+    """Get a single person by ID."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM people WHERE id = ?", (person_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_people() -> list:
+    """Get all people with their photos."""
+    conn = get_connection()
+    people_cursor = conn.execute("SELECT * FROM people ORDER BY created_at DESC")
+    people = [dict(row) for row in people_cursor.fetchall()]
+    for person in people:
+        photos_cursor = conn.execute(
+            "SELECT * FROM people_photos WHERE person_id = ? ORDER BY created_at",
+            (person["id"],),
+        )
+        person["photos"] = [dict(row) for row in photos_cursor.fetchall()]
+    conn.close()
+    return people
+
+
+def delete_person(person_id: int) -> bool:
+    """Delete a person and all their photos. Returns True if found and deleted."""
+    conn = get_connection()
+    conn.execute("DELETE FROM people_photos WHERE person_id = ?", (person_id,))
+    cursor = conn.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def update_person_name(person_id: int, name: str) -> bool:
+    """Update a person's name. Returns True if found and updated."""
+    conn = get_connection()
+    cursor = conn.execute("UPDATE people SET name = ? WHERE id = ?", (name, person_id))
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def save_people_photo(person_id: int, file_path: str, file_name: str) -> int:
+    """Save a photo for an existing person. Returns the new photo ID."""
     conn = get_connection()
     cursor = conn.execute(
-        "INSERT INTO people_photos (name, file_path, file_name) VALUES (?, ?, ?)",
-        (name, file_path, file_name),
+        "INSERT INTO people_photos (person_id, file_path, file_name) VALUES (?, ?, ?)",
+        (person_id, file_path, file_name),
     )
     item_id = cursor.lastrowid
     conn.commit()
@@ -581,21 +674,41 @@ def save_people_photo(name: str, file_path: str, file_name: str) -> int:
 
 
 def get_all_people_photos() -> list:
-    """Get all people photos."""
+    """Get all people photos with person name."""
     conn = get_connection()
-    cursor = conn.execute("SELECT * FROM people_photos ORDER BY created_at DESC")
+    cursor = conn.execute(
+        "SELECT pp.*, p.name FROM people_photos pp "
+        "JOIN people p ON pp.person_id = p.id "
+        "ORDER BY pp.created_at DESC"
+    )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
 
 
 def get_people_photo(photo_id: int) -> dict | None:
-    """Get a single people photo by ID."""
+    """Get a single people photo by ID, including person name."""
     conn = get_connection()
-    cursor = conn.execute("SELECT * FROM people_photos WHERE id = ?", (photo_id,))
+    cursor = conn.execute(
+        "SELECT pp.*, p.name FROM people_photos pp "
+        "JOIN people p ON pp.person_id = p.id "
+        "WHERE pp.id = ?", (photo_id,)
+    )
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def get_photos_for_person(person_id: int) -> list:
+    """Get all photos for a specific person."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT * FROM people_photos WHERE person_id = ? ORDER BY created_at",
+        (person_id,),
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
 
 
 def delete_people_photo(photo_id: int) -> bool:

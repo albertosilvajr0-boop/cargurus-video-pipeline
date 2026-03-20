@@ -837,22 +837,28 @@
             <div class="form-section" style="margin-top:24px">
                 <h3>People Photos</h3>
                 <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
-                    Upload photos of people to feature in your videos. When generating a video, you can choose one of these people or let the AI generate a person.
+                    Upload photos of people to feature in your videos. You can add multiple photos per person to capture more of their profile. When generating a video, choose a person or let the AI generate one.
                 </p>
-                <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px">
-                    <div class="form-field" style="flex:1">
+                <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+                    <div class="form-field" style="flex:1;min-width:140px">
+                        <label>Add to Person</label>
+                        <select id="personSelect">
+                            <option value="new">+ New Person</option>
+                        </select>
+                    </div>
+                    <div class="form-field" id="personNameField" style="flex:1;min-width:140px">
                         <label>Person Name</label>
                         <input type="text" id="personName" placeholder="e.g. John (Sales Rep)">
                     </div>
                     <div>
                         <label class="btn" style="cursor:pointer;padding:8px 16px;display:inline-block">
-                            Choose Photo
-                            <input type="file" id="personPhotoInput" accept="image/*" style="display:none" onchange="onPersonPhotoSelected(this)">
+                            Choose Photos
+                            <input type="file" id="personPhotoInput" accept="image/*" multiple style="display:none" onchange="onPersonPhotoSelected(this)">
                         </label>
                     </div>
                     <button class="btn primary" id="personSaveBtn" onclick="savePersonPhoto()" disabled>Upload</button>
                 </div>
-                <div id="personPhotoPreview" style="margin-bottom:12px"></div>
+                <div id="personPhotoPreview" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap"></div>
                 <span id="personSaveStatus" style="font-size:0.85rem;color:var(--muted)"></span>
 
                 <!-- Saved People Grid -->
@@ -2365,31 +2371,47 @@
         }
 
         // ==================== PEOPLE PHOTOS ====================
-        let personPhotoFile = null;
-        let peoplePhotos = [];
+        let personPhotoFiles = [];
+        let peopleList = [];  // [{id, name, photos: [{id, file_path, ...}]}]
+
+        // Show/hide the name field based on whether we're creating a new person
+        document.getElementById('personSelect').addEventListener('change', function() {
+            const nameField = document.getElementById('personNameField');
+            nameField.style.display = this.value === 'new' ? '' : 'none';
+            updatePersonSaveBtn();
+        });
 
         function onPersonPhotoSelected(input) {
-            personPhotoFile = input.files[0] || null;
+            personPhotoFiles = Array.from(input.files || []);
             const preview = document.getElementById('personPhotoPreview');
-            if (personPhotoFile) {
-                const url = URL.createObjectURL(personPhotoFile);
-                preview.innerHTML = `<div class="preview-item" style="width:80px;height:80px;display:inline-block">
-                    <img src="${url}" alt="Person">
-                </div>`;
+            if (personPhotoFiles.length) {
+                preview.innerHTML = personPhotoFiles.map(f => {
+                    const url = URL.createObjectURL(f);
+                    return `<div class="preview-item" style="width:80px;height:80px;display:inline-block">
+                        <img src="${url}" alt="Person">
+                    </div>`;
+                }).join('');
             } else {
                 preview.innerHTML = '';
             }
-            document.getElementById('personSaveBtn').disabled = !personPhotoFile || !document.getElementById('personName').value.trim();
+            updatePersonSaveBtn();
         }
 
-        document.getElementById('personName').addEventListener('input', function() {
-            document.getElementById('personSaveBtn').disabled = !personPhotoFile || !this.value.trim();
-        });
+        document.getElementById('personName').addEventListener('input', updatePersonSaveBtn);
+
+        function updatePersonSaveBtn() {
+            const isNew = document.getElementById('personSelect').value === 'new';
+            const hasName = document.getElementById('personName').value.trim().length > 0;
+            const hasFiles = personPhotoFiles.length > 0;
+            document.getElementById('personSaveBtn').disabled = !hasFiles || (isNew && !hasName);
+        }
 
         async function savePersonPhoto() {
-            if (!personPhotoFile) return;
+            if (!personPhotoFiles.length) return;
+            const selectEl = document.getElementById('personSelect');
+            const isNew = selectEl.value === 'new';
             const name = document.getElementById('personName').value.trim();
-            if (!name) return;
+            if (isNew && !name) return;
 
             const btn = document.getElementById('personSaveBtn');
             const status = document.getElementById('personSaveStatus');
@@ -2397,12 +2419,15 @@
             status.textContent = 'Uploading...';
             status.style.color = 'var(--cyan)';
 
+            // Determine person_id: 0 means create new
+            const personId = isNew ? 0 : selectEl.value;
+
             const formData = new FormData();
-            formData.append('photo', personPhotoFile);
-            formData.append('name', name);
+            personPhotoFiles.forEach(f => formData.append('photos', f));
+            if (isNew) formData.append('name', name);
 
             try {
-                const res = await fetch('/api/people/upload', { method: 'POST', body: formData });
+                const res = await fetch(`/api/people/${personId}/photos`, { method: 'POST', body: formData });
                 const data = await res.json();
 
                 if (!res.ok) {
@@ -2412,15 +2437,18 @@
                     return;
                 }
 
-                status.textContent = 'Person photo saved!';
+                const count = data.photos ? data.photos.length : 1;
+                status.textContent = `${count} photo${count > 1 ? 's' : ''} saved!`;
                 status.style.color = 'var(--green)';
                 setTimeout(() => { status.textContent = ''; }, 3000);
 
                 // Reset form
-                personPhotoFile = null;
+                personPhotoFiles = [];
                 document.getElementById('personName').value = '';
                 document.getElementById('personPhotoInput').value = '';
                 document.getElementById('personPhotoPreview').innerHTML = '';
+                selectEl.value = 'new';
+                document.getElementById('personNameField').style.display = '';
                 btn.disabled = true;
 
                 loadPeoplePhotos();
@@ -2435,32 +2463,67 @@
             const container = document.getElementById('peoplePhotosList');
             try {
                 const res = await fetch('/api/people');
-                peoplePhotos = await res.json();
+                peopleList = await res.json();
 
-                if (peoplePhotos.length === 0) {
-                    container.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No people photos yet. Upload one above.</p>';
+                if (peopleList.length === 0) {
+                    container.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No people added yet. Upload photos above.</p>';
                 } else {
-                    container.innerHTML = `<div class="preview-grid">${peoplePhotos.map(p => {
-                        const src = `/people/${p.file_path.split('/').pop()}`;
-                        return `<div class="preview-item" style="position:relative">
-                            <img src="${src}" alt="${escapeHtml(p.name)}">
-                            <button class="remove-btn" onclick="deletePersonPhoto(${p.id})">&times;</button>
-                            <div class="label">${escapeHtml(p.name)}</div>
+                    container.innerHTML = peopleList.map(person => {
+                        const photoGrid = (person.photos || []).map(ph => {
+                            const src = `/people/${ph.file_path.split('/').pop()}`;
+                            return `<div class="preview-item" style="position:relative">
+                                <img src="${src}" alt="${escapeHtml(person.name)}">
+                                <button class="remove-btn" onclick="deleteSinglePhoto(${ph.id})">&times;</button>
+                            </div>`;
+                        }).join('');
+                        const count = (person.photos || []).length;
+                        return `<div style="margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                                <strong>${escapeHtml(person.name)}</strong>
+                                <span style="font-size:0.8rem;color:var(--muted)">${count} photo${count !== 1 ? 's' : ''}</span>
+                                <button class="btn" style="padding:4px 10px;font-size:0.75rem;color:var(--red)" onclick="deletePerson(${person.id})">Delete Person</button>
+                            </div>
+                            <div class="preview-grid">${photoGrid || '<span style="color:var(--muted);font-size:0.8rem">No photos yet</span>'}</div>
                         </div>`;
-                    }).join('')}</div>`;
+                    }).join('');
                 }
 
-                // Refresh person selectors in all forms
+                // Update the "Add to Person" selector
+                const personSelect = document.getElementById('personSelect');
+                const curVal = personSelect.value;
+                personSelect.innerHTML = '<option value="new">+ New Person</option>';
+                peopleList.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.name} (${(p.photos || []).length} photos)`;
+                    personSelect.appendChild(opt);
+                });
+                if (curVal && personSelect.querySelector(`option[value="${curVal}"]`)) {
+                    personSelect.value = curVal;
+                }
+
+                // Refresh person selectors in video generation forms
                 populatePersonSelectors();
             } catch (e) {
-                container.innerHTML = '<p style="color:var(--red);font-size:0.85rem">Failed to load people photos.</p>';
+                container.innerHTML = '<p style="color:var(--red);font-size:0.85rem">Failed to load people.</p>';
             }
         }
 
-        async function deletePersonPhoto(id) {
-            if (!confirm('Delete this person photo?')) return;
+        async function deleteSinglePhoto(photoId) {
+            if (!confirm('Delete this photo?')) return;
             try {
-                const res = await fetch(`/api/people/${id}`, { method: 'DELETE' });
+                const res = await fetch(`/api/people/photos/${photoId}`, { method: 'DELETE' });
+                if (res.ok) loadPeoplePhotos();
+                else alert('Failed to delete photo');
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            }
+        }
+
+        async function deletePerson(personId) {
+            if (!confirm('Delete this person and all their photos?')) return;
+            try {
+                const res = await fetch(`/api/people/${personId}`, { method: 'DELETE' });
                 if (res.ok) loadPeoplePhotos();
                 else alert('Failed to delete');
             } catch (e) {
@@ -2475,13 +2538,13 @@
                 if (!select) return;
                 const currentVal = select.value;
                 select.innerHTML = '<option value="ai">Let AI Generate Person</option>';
-                peoplePhotos.forEach(p => {
+                peopleList.forEach(p => {
+                    if ((p.photos || []).length === 0) return;  // skip people with no photos
                     const opt = document.createElement('option');
                     opt.value = p.id;
-                    opt.textContent = p.name;
+                    opt.textContent = `${p.name} (${p.photos.length} photo${p.photos.length !== 1 ? 's' : ''})`;
                     select.appendChild(opt);
                 });
-                // Restore previous selection if still valid
                 if (currentVal && select.querySelector(`option[value="${currentVal}"]`)) {
                     select.value = currentVal;
                 }
@@ -2498,13 +2561,14 @@
                     if (this.value === 'ai') {
                         previewEl.innerHTML = '';
                     } else {
-                        const person = peoplePhotos.find(p => p.id == this.value);
-                        if (person) {
-                            const src = `/people/${person.file_path.split('/').pop()}`;
-                            previewEl.innerHTML = `<div class="preview-item" style="width:60px;height:60px;display:inline-block">
-                                <img src="${src}" alt="${escapeHtml(person.name)}">
-                                <div class="label">${escapeHtml(person.name)}</div>
-                            </div>`;
+                        const person = peopleList.find(p => p.id == this.value);
+                        if (person && person.photos && person.photos.length) {
+                            previewEl.innerHTML = person.photos.map(ph => {
+                                const src = `/people/${ph.file_path.split('/').pop()}`;
+                                return `<div class="preview-item" style="width:60px;height:60px;display:inline-block">
+                                    <img src="${src}" alt="${escapeHtml(person.name)}">
+                                </div>`;
+                            }).join('');
                         }
                     }
                 };
