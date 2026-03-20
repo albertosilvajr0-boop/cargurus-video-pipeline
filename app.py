@@ -731,13 +731,24 @@ def api_save_branding():
 @app.route("/api/branding", methods=["GET"])
 def api_get_branding():
     """Get current dealer branding settings."""
+    has_logo = bool(settings.DEALER_LOGO_PATH and Path(settings.DEALER_LOGO_PATH).exists())
+    logo_url = None
+    if has_logo:
+        logo_url = f"/branding/{Path(settings.DEALER_LOGO_PATH).name}"
     return jsonify({
         "dealer_name": settings.DEALER_NAME,
         "phone": settings.DEALER_PHONE,
         "address": settings.DEALER_ADDRESS,
         "website": settings.DEALER_WEBSITE,
-        "has_logo": bool(settings.DEALER_LOGO_PATH and Path(settings.DEALER_LOGO_PATH).exists()),
+        "has_logo": has_logo,
+        "logo_url": logo_url,
     })
+
+
+@app.route("/branding/<filename>")
+def serve_branding_file(filename):
+    """Serve branding assets (e.g. dealer logo)."""
+    return send_from_directory(str(settings.BRANDING_DIR), filename)
 
 
 # --- Cost APIs ---
@@ -1528,7 +1539,7 @@ def health_check():
 def api_persistence_status():
     """Diagnostic endpoint to check Firestore connectivity and data persistence."""
     from utils.data_persistence import _get_firestore, _firestore_available, _load_from_firestore
-    from utils.data_persistence import FS_TEMPLATES_DOC, FS_VEHICLES_DOC, FS_BRANDING_DOC
+    from utils.data_persistence import FS_TEMPLATES_DOC, FS_VEHICLES_DOC, FS_BRANDING_DOC, FS_PEOPLE_DOC
 
     result = {
         "firestore_available": _firestore_available,
@@ -1540,7 +1551,7 @@ def api_persistence_status():
     from utils.database import get_connection
     try:
         conn = get_connection()
-        for table in ["prompt_templates", "vehicles", "branding_settings"]:
+        for table in ["prompt_templates", "vehicles", "branding_settings", "people", "people_photos"]:
             cursor = conn.execute(f"SELECT COUNT(*) as count FROM {table}")
             result["sqlite_counts"][table] = cursor.fetchone()["count"]
         conn.close()
@@ -1553,7 +1564,8 @@ def api_persistence_status():
         result["firestore_available"] = True
         for doc_name, label in [(FS_TEMPLATES_DOC, "prompt_templates"),
                                  (FS_VEHICLES_DOC, "vehicles"),
-                                 (FS_BRANDING_DOC, "branding")]:
+                                 (FS_BRANDING_DOC, "branding"),
+                                 (FS_PEOPLE_DOC, "people")]:
             data = _load_from_firestore(doc_name)
             if data:
                 result["firestore_counts"][label] = len(data) if isinstance(data, list) else 1

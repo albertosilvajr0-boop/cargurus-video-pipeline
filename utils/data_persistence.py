@@ -23,6 +23,7 @@ TEMPLATES_FILE = DATA_DIR / "prompt_templates.json"
 VEHICLES_FILE = DATA_DIR / "vehicles.json"
 BRANDING_FILE = DATA_DIR / "branding.json"
 MEDIA_LIBRARY_FILE = DATA_DIR / "media_library.json"
+PEOPLE_FILE = DATA_DIR / "people.json"
 
 # Firestore client (lazy-initialized)
 _firestore_client = None
@@ -35,6 +36,7 @@ FS_TEMPLATES_DOC = "prompt_templates"
 FS_VEHICLES_DOC = "vehicles"
 FS_BRANDING_DOC = "branding"
 FS_MEDIA_LIBRARY_DOC = "media_library"
+FS_PEOPLE_DOC = "people"
 
 
 def _get_firestore():
@@ -154,12 +156,24 @@ def export_media_library():
     logger.info("Exported %d media library records (firestore=%s)", len(items), saved)
 
 
+def export_people():
+    """Export all people and their photos to Firestore and local JSON file."""
+    from utils.database import get_all_people
+    people = get_all_people()
+    saved = _save_to_firestore(FS_PEOPLE_DOC, people)
+    if not saved:
+        logger.warning("People NOT saved to Firestore — will be lost on restart!")
+    PEOPLE_FILE.write_text(json.dumps(people, indent=2, default=str))
+    logger.info("Exported %d people (firestore=%s)", len(people), saved)
+
+
 def export_all():
     """Export all data to Firestore and JSON files."""
     export_prompt_templates()
     export_vehicles()
     export_branding()
     export_media_library()
+    export_people()
 
 
 # --- Restore functions (load from Firestore first, then JSON fallback) ---
@@ -352,12 +366,63 @@ def restore_media_library():
     return restored
 
 
+def restore_people():
+    """Restore people and their photos from Firestore (or JSON fallback) if DB is empty."""
+    from utils.database import get_connection
+    conn = get_connection()
+    cursor = conn.execute("SELECT COUNT(*) as count FROM people")
+    existing = cursor.fetchone()["count"]
+
+    if existing > 0:
+        conn.close()
+        return 0
+
+    # Try Firestore first
+    people = _load_from_firestore(FS_PEOPLE_DOC)
+
+    # Fall back to local JSON
+    if not people and PEOPLE_FILE.exists():
+        try:
+            people = json.loads(PEOPLE_FILE.read_text())
+            logger.info("Loaded people from local JSON fallback")
+        except Exception:
+            people = None
+
+    if not people:
+        conn.close()
+        return 0
+
+    restored = 0
+    for person in people:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO people (id, name, created_at) VALUES (?, ?, ?)",
+                (person["id"], person["name"], person.get("created_at", datetime.now().isoformat())),
+            )
+            for photo in person.get("photos", []):
+                conn.execute(
+                    "INSERT OR IGNORE INTO people_photos (id, person_id, file_path, file_name, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (photo["id"], photo["person_id"], photo["file_path"],
+                     photo["file_name"], photo.get("created_at", datetime.now().isoformat())),
+                )
+            restored += 1
+        except Exception as e:
+            logger.warning("Failed to restore person %s: %s", person.get("name"), e)
+
+    conn.commit()
+    conn.close()
+    logger.info("Restored %d people from backup", restored)
+    return restored
+
+
 def restore_all():
     """Restore all data from Firestore/JSON backups (only if DB tables are empty)."""
     templates = restore_prompt_templates()
     vehicles = restore_vehicles()
     branding = restore_branding()
     media = restore_media_library()
-    if templates or vehicles or branding or media:
+    people = restore_people()
+    if templates or vehicles or branding or media or people:
         logger.info("Session data restored from persistent backup")
-    return templates or vehicles or branding or media
+    return templates or vehicles or branding or media or people

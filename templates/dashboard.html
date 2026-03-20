@@ -1169,6 +1169,10 @@
 
                 <div style="margin:16px 0">
                     <label style="font-size:0.8rem;color:var(--muted);display:block;margin-bottom:8px">Dealer Logo (PNG with transparency recommended)</label>
+                    <div id="currentLogoPreview" style="display:none;margin-bottom:10px">
+                        <img id="currentLogoImg" src="" alt="Current dealer logo" style="max-height:80px;max-width:200px;border:1px solid var(--border);border-radius:6px;padding:6px;background:var(--card)">
+                        <span style="display:block;font-size:0.75rem;color:var(--muted);margin-top:4px">Current logo (choose a new file below to replace)</span>
+                    </div>
                     <input type="file" id="brandingLogo" accept="image/*" style="font-size:0.85rem;color:var(--text)">
                 </div>
 
@@ -2724,6 +2728,20 @@
         // Load people photos on startup
         loadPeoplePhotos();
 
+        // Load current dealer logo preview on startup
+        (async function loadBrandingLogo() {
+            try {
+                const res = await fetch('/api/branding');
+                const data = await res.json();
+                if (data.has_logo && data.logo_url) {
+                    const preview = document.getElementById('currentLogoPreview');
+                    const img = document.getElementById('currentLogoImg');
+                    img.src = data.logo_url;
+                    preview.style.display = 'block';
+                }
+            } catch (e) { /* ignore */ }
+        })();
+
         // ==================== LOCAL STORAGE PERSISTENCE ====================
         const STORAGE_KEYS = {
             tab: 'vp_activeTab',
@@ -2801,6 +2819,17 @@
                     const saved = document.getElementById('brandingSaved');
                     saved.style.display = 'inline';
                     setTimeout(() => { saved.style.display = 'none'; }, 3000);
+                    // Refresh logo preview if a new logo was uploaded
+                    if (logoInput.files[0]) {
+                        const brandingRes = await fetch('/api/branding');
+                        const brandingData = await brandingRes.json();
+                        if (brandingData.has_logo && brandingData.logo_url) {
+                            const preview = document.getElementById('currentLogoPreview');
+                            const img = document.getElementById('currentLogoImg');
+                            img.src = brandingData.logo_url + '?t=' + Date.now();
+                            preview.style.display = 'block';
+                        }
+                    }
                 }
             } catch (e) {
                 console.error('Failed to save branding:', e);
