@@ -528,8 +528,8 @@
     <main class="container">
         <!-- Tabs -->
         <div class="tabs">
-            <div class="tab active" data-tab="upload">Create Video</div>
-            <div class="tab" data-tab="media">My Media</div>
+            <div class="tab active" data-tab="media">My Media</div>
+            <div class="tab" data-tab="upload">Create Video</div>
             <div class="tab" data-tab="videos">My Videos</div>
             <div class="tab" data-tab="costs">Costs</div>
             <div class="tab" data-tab="settings">Branding</div>
@@ -537,7 +537,7 @@
         </div>
 
         <!-- ========== TAB: Upload ========== -->
-        <div id="tab-upload" class="tab-content active">
+        <div id="tab-upload" class="tab-content">
 
             <!-- Video Type Selector + Mode toggle -->
             <div id="uploadForm">
@@ -755,7 +755,7 @@
         </div>
 
         <!-- ========== TAB: My Media ========== -->
-        <div id="tab-media" class="tab-content">
+        <div id="tab-media" class="tab-content active">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px">
                 <div>
                     <h2 style="font-size:1.2rem">My Media Library</h2>
@@ -2307,10 +2307,11 @@
             setMode('upload');
         };
 
-        // Initialize on page load: always start fresh on Create Video / Upload Photos
+        // Initialize on page load: always start on My Media tab
         (function initOnLoad() {
             try {
-                // Always start on Create Video tab with Upload Photos mode
+                // Start on My Media tab and load its content
+                switchToTab('media');
                 setMode('upload');
 
                 // Clear any stale video result so the form shows clean
