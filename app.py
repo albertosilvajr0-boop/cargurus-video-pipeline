@@ -41,7 +41,12 @@ from utils.database import (
     update_media_group_label,
 )
 from utils.cost_tracker import CostTracker
-from utils.cloud_storage import upload_video as gcs_upload_video, download_video as gcs_download_video, is_gcs_enabled, upload_branding_asset, download_branding_asset
+from utils.cloud_storage import (
+    upload_video as gcs_upload_video, download_video as gcs_download_video,
+    is_gcs_enabled, upload_branding_asset, download_branding_asset,
+    upload_directory as gcs_upload_directory, download_directory as gcs_download_directory,
+    list_prefixes as gcs_list_prefixes,
+)
 
 app = Flask(__name__)
 
@@ -86,6 +91,35 @@ if _saved_branding:
                 logger.info("Restored dealer logo from GCS: %s", _logo_path)
             else:
                 logger.warning("Dealer logo not found locally or in GCS: %s", _logo_path)
+
+# Restore uploaded photos and media from GCS after cold restart
+if is_gcs_enabled():
+    # Restore user-uploaded photos (output/uploads/<upload_id>/)
+    _upload_prefixes = gcs_list_prefixes("uploads/")
+    _restored_uploads = 0
+    for prefix in _upload_prefixes:
+        # prefix looks like 'uploads/upload_abc123/'
+        _upload_id = prefix.strip("/").split("/")[-1]
+        _local_upload_dir = settings.UPLOADS_DIR / _upload_id
+        if not _local_upload_dir.exists() or not any(_local_upload_dir.iterdir()):
+            count = gcs_download_directory(prefix.rstrip("/"), str(_local_upload_dir))
+            if count:
+                _restored_uploads += count
+    if _restored_uploads:
+        logger.info("Restored %d uploaded photo files from GCS", _restored_uploads)
+
+    # Restore media library files (output/media/<group>/)
+    _media_prefixes = gcs_list_prefixes("media/")
+    _restored_media = 0
+    for prefix in _media_prefixes:
+        _group_name = prefix.strip("/").split("/")[-1]
+        _local_media_dir = settings.MEDIA_DIR / _group_name
+        if not _local_media_dir.exists() or not any(_local_media_dir.iterdir()):
+            count = gcs_download_directory(prefix.rstrip("/"), str(_local_media_dir))
+            if count:
+                _restored_media += count
+    if _restored_media:
+        logger.info("Restored %d media library files from GCS", _restored_media)
 
 # Track background jobs
 _jobs_lock = threading.Lock()
@@ -440,6 +474,12 @@ def _process_upload(
             logger.info("Job %s status -> %s: %s", job_id, kwargs.get("status"), kwargs.get("progress", ""))
 
     try:
+        # --- Step 0: Backup uploaded photos to GCS ---
+        if is_gcs_enabled():
+            upload_dir = settings.UPLOADS_DIR / upload_id
+            if upload_dir.is_dir():
+                gcs_upload_directory(str(upload_dir), f"uploads/{upload_id}")
+
         # --- Step 1: Gemini multimodal extraction ---
         update_job(status="extracting", progress="Sending images to Gemini for analysis...")
         extractor = MultimodalExtractor()
@@ -840,6 +880,10 @@ def api_media_upload():
             media_group=group,
         )
         saved_items.append({"id": item_id, "file_name": f.filename, "file_type": file_type})
+
+    # Backup media files to GCS so they survive cold restarts
+    if is_gcs_enabled():
+        gcs_upload_directory(str(group_dir), f"media/{group}")
 
     return jsonify({
         "status": "saved",
