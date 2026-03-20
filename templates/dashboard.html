@@ -805,7 +805,12 @@
                             <td>{% if v.price %}${{ "{:,.0f}".format(v.price) }}{% else %}&mdash;{% endif %}</td>
                             <td><span class="badge {{ v.status }}">{{ v.status | replace('_', ' ') }}</span></td>
                             <td>{% if v.video_cost %}${{ "%.2f"|format(v.video_cost) }}{% else %}&mdash;{% endif %}</td>
-                            <td><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail({{ v.id }})">View</button></td>
+                            <td style="white-space:nowrap">
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail({{ v.id }})">View</button>
+                                {% if v.status == 'video_complete' %}
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail({{ v.id }}); setTimeout(()=>toggleReoverlayForm({{ v.id }}),300)">Re-overlay</button>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -1049,6 +1054,9 @@
                         const price = v.price ? '$' + Number(v.price).toLocaleString() : '&mdash;';
                         const status = (v.status || '').replace(/_/g, ' ');
                         const cost = v.video_cost ? '$' + v.video_cost.toFixed(2) : '&mdash;';
+                        const reoverlayBtn = v.status === 'video_complete'
+                            ? `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail(${v.id}); setTimeout(()=>toggleReoverlayForm(${v.id}),300)">Re-overlay</button>`
+                            : '';
                         return `<tr>
                             <td><strong>${name}</strong>${trim}</td>
                             <td style="font-family:monospace;font-size:0.8rem">${vin}</td>
@@ -1056,7 +1064,7 @@
                             <td>${price}</td>
                             <td><span class="badge ${v.status}">${status}</span></td>
                             <td>${cost}</td>
-                            <td><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button></td>
+                            <td style="white-space:nowrap"><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>${reoverlayBtn}</td>
                         </tr>`;
                     }).join('');
 
@@ -2008,7 +2016,29 @@
                     const vidSrc = v.video_url || `/videos/${v.video_path.split('/').pop()}`;
                     html += `<div style="margin-top:16px"><h3 style="margin-bottom:8px">Video</h3>`;
                     html += `<video controls style="width:100%;max-height:400px;border-radius:8px" src="${vidSrc}"></video>`;
-                    html += `<div style="margin-top:8px"><a href="${vidSrc}" download class="btn" style="text-decoration:none">Download</a></div></div>`;
+                    html += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">`;
+                    html += `<a href="${vidSrc}" download class="btn" style="text-decoration:none">Download</a>`;
+                    if (v.status === 'video_complete') {
+                        html += `<button class="btn" onclick="toggleReoverlayForm(${v.id})" style="background:var(--accent)">Re-overlay Clip</button>`;
+                    }
+                    html += `</div></div>`;
+
+                    // Re-overlay inline form (hidden by default)
+                    if (v.status === 'video_complete') {
+                        html += `<div id="reoverlayForm-${v.id}" style="display:none;margin-top:16px;padding:16px;background:var(--bg);border-radius:8px;border:1px solid var(--accent)">`;
+                        html += `<h3 style="margin-bottom:4px">Re-overlay Existing Clip</h3>`;
+                        html += `<p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Update branding, price, or CTA without regenerating the video — <strong style="color:var(--green)">$0 API cost</strong></p>`;
+                        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">`;
+                        html += `<div class="form-field"><label>Price</label><input type="text" id="reoverlayPrice-${v.id}" value="${v.price ? Number(v.price).toLocaleString() : ''}" placeholder="e.g. 39,990"></div>`;
+                        html += `<div class="form-field"><label>CTA Text</label><input type="text" id="reoverlayCTA-${v.id}" value="" placeholder="e.g. Limited Time Offer!"></div>`;
+                        html += `<div class="form-field"><label>Phone Override</label><input type="text" id="reoverlayPhone-${v.id}" value="" placeholder="Uses branding default"></div>`;
+                        html += `<div class="form-field"><label>Address Override</label><input type="text" id="reoverlayAddress-${v.id}" value="" placeholder="Uses branding default"></div>`;
+                        html += `</div>`;
+                        html += `<div style="margin-top:12px;display:flex;gap:8px;align-items:center">`;
+                        html += `<button class="btn primary" onclick="submitReoverlay(${v.id})">Apply Overlays</button>`;
+                        html += `<span id="reoverlayStatus-${v.id}" style="font-size:0.85rem;color:var(--muted)"></span>`;
+                        html += `</div></div>`;
+                    }
                 }
 
                 if (v.script_parsed && v.script_parsed.script && v.script_parsed.script.caption) {
@@ -2030,6 +2060,80 @@
         document.getElementById('detailModal').addEventListener('click', function(e) {
             if (e.target === this) closeModal();
         });
+
+        // ==================== RE-OVERLAY ====================
+        function toggleReoverlayForm(vehicleId) {
+            const form = document.getElementById(`reoverlayForm-${vehicleId}`);
+            if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function submitReoverlay(vehicleId) {
+            const statusEl = document.getElementById(`reoverlayStatus-${vehicleId}`);
+            statusEl.textContent = 'Submitting...';
+            statusEl.style.color = 'var(--cyan)';
+
+            const priceRaw = document.getElementById(`reoverlayPrice-${vehicleId}`).value.replace(/[^0-9.]/g, '');
+            const body = {
+                vehicle_id: vehicleId,
+                cta_text: document.getElementById(`reoverlayCTA-${vehicleId}`).value,
+                dealer_phone: document.getElementById(`reoverlayPhone-${vehicleId}`).value,
+                dealer_address: document.getElementById(`reoverlayAddress-${vehicleId}`).value,
+            };
+            if (priceRaw) body.price = parseFloat(priceRaw);
+
+            try {
+                const res = await fetch('/api/reoverlay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    statusEl.textContent = data.error || 'Failed';
+                    statusEl.style.color = 'var(--red)';
+                    return;
+                }
+
+                statusEl.textContent = 'Processing...';
+                statusEl.style.color = 'var(--cyan)';
+
+                // Poll for completion
+                const jobId = data.job_id;
+                const poll = setInterval(async () => {
+                    try {
+                        const jr = await fetch(`/api/job/${jobId}`);
+                        const job = await jr.json();
+                        if (job.status === 'complete') {
+                            clearInterval(poll);
+                            statusEl.innerHTML = '<span style="color:var(--green)">Done! Overlays updated ($0 cost)</span>';
+                            // Refresh the video in the modal
+                            const vidEl = document.querySelector('#modalContent video');
+                            if (vidEl && job.video_filename) {
+                                const newSrc = job.video_url || `/videos/${job.video_filename}`;
+                                vidEl.src = newSrc;
+                                vidEl.load();
+                            }
+                            refreshVideosTab();
+                        } else if (job.status === 'error') {
+                            clearInterval(poll);
+                            statusEl.textContent = job.progress || 'Re-overlay failed';
+                            statusEl.style.color = 'var(--red)';
+                        } else {
+                            statusEl.textContent = job.progress || 'Processing...';
+                        }
+                    } catch (e) {
+                        clearInterval(poll);
+                        statusEl.textContent = 'Lost connection';
+                        statusEl.style.color = 'var(--red)';
+                    }
+                }, 1500);
+
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+                statusEl.style.color = 'var(--red)';
+            }
+        }
 
         // ==================== COST ESTIMATE ====================
         const costs = { sora: { fast: 1.20, standard: 3.00, pro: 6.00 }, veo: { fast: 0.50, standard: 1.50, pro: 4.00 } };
