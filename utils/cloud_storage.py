@@ -62,6 +62,74 @@ def upload_video(local_path: str, destination_blob: str | None = None) -> str | 
         return None
 
 
+def upload_branding_asset(local_path: str) -> str | None:
+    """Upload a branding asset (e.g. dealer logo) to GCS so it survives cold restarts.
+
+    Stored under 'branding/<filename>' in the bucket.
+
+    Returns:
+        GCS blob name on success, or None on failure.
+    """
+    if not is_gcs_enabled():
+        return None
+
+    local = Path(local_path)
+    if not local.exists():
+        logger.error("Cannot upload branding asset — file not found: %s", local_path)
+        return None
+
+    destination_blob = f"branding/{local.name}"
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(destination_blob)
+
+        # Detect content type from extension
+        ext = local.suffix.lower()
+        content_type = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".svg": "image/svg+xml", ".webp": "image/webp",
+        }.get(ext, "application/octet-stream")
+
+        blob.upload_from_filename(str(local), content_type=content_type)
+        logger.info("Uploaded branding asset %s -> gs://%s/%s", local.name, GCS_BUCKET_NAME, destination_blob)
+        return destination_blob
+    except Exception as e:
+        logger.error("GCS branding upload failed for %s: %s: %s", local_path, type(e).__name__, e)
+        return None
+
+
+def download_branding_asset(blob_name: str, local_path: str) -> bool:
+    """Download a branding asset from GCS to a local path.
+
+    Used on startup to restore the dealer logo after a cold restart.
+
+    Returns:
+        True if downloaded successfully, False otherwise.
+    """
+    if not is_gcs_enabled():
+        return False
+
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        if not blob.exists():
+            logger.warning("Branding asset not found in GCS: gs://%s/%s", GCS_BUCKET_NAME, blob_name)
+            return False
+
+        # Ensure parent directory exists
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+
+        blob.download_to_filename(local_path)
+        logger.info("Downloaded branding asset gs://%s/%s -> %s", GCS_BUCKET_NAME, blob_name, local_path)
+        return True
+    except Exception as e:
+        logger.error("GCS branding download failed for %s: %s: %s", blob_name, type(e).__name__, e)
+        return False
+
+
 def delete_video(blob_name: str) -> bool:
     """Delete a video from GCS."""
     if not is_gcs_enabled():
