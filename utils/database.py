@@ -621,6 +621,7 @@ def create_person(name: str) -> int:
     person_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    _auto_export_people()
     return person_id
 
 
@@ -656,6 +657,8 @@ def delete_person(person_id: int) -> bool:
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if deleted:
+        _auto_export_people()
     return deleted
 
 
@@ -666,6 +669,8 @@ def update_person_name(person_id: int, name: str) -> bool:
     updated = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if updated:
+        _auto_export_people()
     return updated
 
 
@@ -679,6 +684,7 @@ def save_people_photo(person_id: int, file_path: str, file_name: str) -> int:
     item_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    _auto_export_people()
     return item_id
 
 
@@ -727,6 +733,8 @@ def delete_people_photo(photo_id: int) -> bool:
     deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    if deleted:
+        _auto_export_people()
     return deleted
 
 
@@ -809,5 +817,14 @@ def _auto_export_branding():
     try:
         from utils.data_persistence import export_branding
         export_branding()
+    except Exception:
+        pass
+
+
+def _auto_export_people():
+    """Export people and photos to JSON backup after any write."""
+    try:
+        from utils.data_persistence import export_people
+        export_people()
     except Exception:
         pass
