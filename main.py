@@ -364,6 +364,79 @@ def vin(vin_number, price, quality, phone, address, cta):
 
 
 @cli.command()
+@click.argument("clip", type=str)
+@click.option("--name", default=None, help="Vehicle name (e.g. '2024 Jeep Grand Cherokee')")
+@click.option("--price", type=float, default=None, help="Updated vehicle price")
+@click.option("--phone", default=None, help="Dealer phone number")
+@click.option("--address", default=None, help="Dealer address")
+@click.option("--cta", default=None, help="Call-to-action text")
+@click.option("--logo", type=click.Path(exists=True), default=None, help="Dealer logo PNG")
+@click.option("--hero", type=click.Path(exists=True), default=None, help="Hero photo for intro")
+def reoverlay(clip, name, price, phone, address, cta, logo, hero):
+    """Re-apply overlays to an existing AI clip — $0 API cost.
+
+    CLIP can be a vehicle ID (e.g. vin_1C4RJFAG5LC123456) or a path to a _clip.mp4 file.
+
+    Examples:
+        python main.py reoverlay vin_1C4RJFAG5LC123456 --price 39990 --phone "555-1234"
+        python main.py reoverlay output/videos/my_clip.mp4 --name "2024 Jeep" --cta "Call Now!"
+    """
+    print_banner()
+    init_db()
+    console.print("[bold]Re-applying overlays (no API calls — $0 cost)[/bold]\n")
+
+    # Try to load vehicle info from DB if clip looks like a cargurus_id
+    vehicle_name = name
+    vehicle_price = price
+    vehicle_specs = None
+
+    if not Path(clip).exists():
+        # Might be a cargurus_id — try to pull metadata from DB
+        from utils.database import get_connection
+        conn = get_connection()
+        cursor = conn.execute(
+            "SELECT * FROM vehicles WHERE cargurus_id = ?", (clip,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            if not vehicle_name:
+                parts = [str(row["year"] or ""), row["make"] or "", row["model"] or "", row["trim"] or ""]
+                vehicle_name = " ".join(p for p in parts if p).strip()
+            if vehicle_price is None and row["price"]:
+                vehicle_price = row["price"]
+            vehicle_specs = {
+                "engine": row["engine"] or "",
+                "drivetrain": row["drivetrain"] or "",
+                "body_style": "",
+            }
+            console.print(f"[green]Found in DB: {vehicle_name}[/green]")
+
+    if not vehicle_name:
+        console.print("[red]Vehicle name is required. Use --name 'Year Make Model'[/red]")
+        return
+
+    overlay = VideoOverlayPipeline()
+    final_path = overlay.recompose_overlay(
+        vehicle_id_or_clip=clip,
+        vehicle_name=vehicle_name,
+        price=vehicle_price,
+        hero_photo_path=hero,
+        dealer_phone=phone or "",
+        dealer_address=address or "",
+        dealer_logo_path=logo or settings.DEALER_LOGO_PATH,
+        cta_text=cta or "",
+        vehicle_specs=vehicle_specs,
+    )
+
+    if final_path:
+        console.print(f"\n[bold green]Done! Updated video: {final_path}[/bold green]")
+    else:
+        console.print("[red]Re-overlay failed. Make sure the _clip.mp4 file exists.[/red]")
+
+
+@cli.command()
 def status():
     """Show pipeline status."""
     print_banner()
