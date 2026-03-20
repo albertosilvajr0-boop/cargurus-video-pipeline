@@ -160,6 +160,125 @@ def download_video(blob_name: str, local_path: str) -> bool:
         return False
 
 
+def upload_directory(local_dir: str, gcs_prefix: str) -> int:
+    """Upload all files in a local directory to GCS under the given prefix.
+
+    Args:
+        local_dir: Path to the local directory.
+        gcs_prefix: GCS prefix (e.g., 'uploads/upload_abc123' or 'media/group_xyz').
+
+    Returns:
+        Number of files uploaded successfully.
+    """
+    if not is_gcs_enabled():
+        return 0
+
+    local = Path(local_dir)
+    if not local.is_dir():
+        logger.error("Cannot upload directory — not found: %s", local_dir)
+        return 0
+
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        uploaded = 0
+
+        for file_path in local.rglob("*"):
+            if not file_path.is_file():
+                continue
+            relative = file_path.relative_to(local)
+            blob_name = f"{gcs_prefix}/{relative}"
+
+            ext = file_path.suffix.lower()
+            content_type = {
+                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+                ".pdf": "application/pdf", ".svg": "image/svg+xml",
+            }.get(ext, "application/octet-stream")
+
+            blob = bucket.blob(blob_name)
+            blob.upload_from_filename(str(file_path), content_type=content_type)
+            uploaded += 1
+
+        logger.info("Uploaded %d files from %s -> gs://%s/%s/", uploaded, local_dir, GCS_BUCKET_NAME, gcs_prefix)
+        return uploaded
+    except Exception as e:
+        logger.error("GCS directory upload failed for %s: %s: %s", local_dir, type(e).__name__, e)
+        return 0
+
+
+def download_directory(gcs_prefix: str, local_dir: str) -> int:
+    """Download all blobs under a GCS prefix to a local directory.
+
+    Args:
+        gcs_prefix: GCS prefix (e.g., 'uploads/upload_abc123').
+        local_dir: Local directory to download into.
+
+    Returns:
+        Number of files downloaded successfully.
+    """
+    if not is_gcs_enabled():
+        return 0
+
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blobs = list(bucket.list_blobs(prefix=gcs_prefix))
+
+        if not blobs:
+            logger.info("No blobs found under gs://%s/%s", GCS_BUCKET_NAME, gcs_prefix)
+            return 0
+
+        local = Path(local_dir)
+        downloaded = 0
+
+        for blob in blobs:
+            # Skip "directory" markers
+            if blob.name.endswith("/"):
+                continue
+
+            # Strip the prefix to get the relative path
+            relative = blob.name[len(gcs_prefix):].lstrip("/")
+            if not relative:
+                continue
+
+            dest = local / relative
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            blob.download_to_filename(str(dest))
+            downloaded += 1
+
+        logger.info("Downloaded %d files from gs://%s/%s -> %s", downloaded, GCS_BUCKET_NAME, gcs_prefix, local_dir)
+        return downloaded
+    except Exception as e:
+        logger.error("GCS directory download failed for %s: %s: %s", gcs_prefix, type(e).__name__, e)
+        return 0
+
+
+def list_prefixes(gcs_prefix: str) -> list[str]:
+    """List unique immediate sub-prefixes under a GCS prefix.
+
+    E.g., list_prefixes('uploads/') might return ['uploads/upload_abc/', 'uploads/upload_def/'].
+
+    Returns:
+        List of sub-prefix strings.
+    """
+    if not is_gcs_enabled():
+        return []
+
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        # Use delimiter to get "directory-like" listing
+        iterator = bucket.list_blobs(prefix=gcs_prefix, delimiter="/")
+
+        # Must consume the iterator to populate prefixes
+        _ = list(iterator)
+        return list(iterator.prefixes)
+    except Exception as e:
+        logger.error("GCS list_prefixes failed for %s: %s: %s", gcs_prefix, type(e).__name__, e)
+        return []
+
+
 def delete_video(blob_name: str) -> bool:
     """Delete a video from GCS."""
     if not is_gcs_enabled():
