@@ -235,6 +235,18 @@ def get_pipeline_stats() -> dict:
     return stats
 
 
+def delete_vehicle(vehicle_id: int) -> bool:
+    """Delete a vehicle record by ID."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM vehicles WHERE id = ?", (vehicle_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    if deleted:
+        _auto_export_vehicles()
+    return deleted
+
+
 def log_cost(vehicle_id: int, engine: str, quality: str, duration: float, cost: float, call_type: str):
     """Log an API cost entry."""
     conn = get_connection()

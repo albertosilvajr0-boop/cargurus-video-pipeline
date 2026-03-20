@@ -39,6 +39,7 @@ from utils.database import (
     save_media_item, get_all_media, get_media_groups,
     get_media_items_by_ids, delete_media_item, delete_media_group,
     update_media_group_label,
+    delete_vehicle,
 )
 from utils.cost_tracker import CostTracker
 from utils.cloud_storage import (
@@ -769,6 +770,14 @@ def api_vehicle_detail(vehicle_id):
         vehicle["script_parsed"] = json.loads(vehicle["video_script"])
 
     return jsonify(vehicle)
+
+
+@app.route("/api/vehicle/<int:vehicle_id>", methods=["DELETE"])
+def api_delete_vehicle(vehicle_id):
+    deleted = delete_vehicle(vehicle_id)
+    if not deleted:
+        return jsonify({"error": "Vehicle not found"}), 404
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/retry-all", methods=["POST"])

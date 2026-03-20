@@ -770,8 +770,8 @@
                     Photographers can upload photos here. Someone else can come back later to generate the video.
                 </p>
                 <div class="form-field" style="margin-bottom:12px">
-                    <label>Label (e.g. "2024 Tahoe - Blue - Lot 5")</label>
-                    <input type="text" id="mediaLabel" placeholder="Describe this set of photos">
+                    <label>Stock Number</label>
+                    <input type="text" id="mediaLabel" placeholder="Enter stock number">
                 </div>
                 <div class="upload-zone" id="mediaUploadZone" style="padding:24px 16px">
                     <h3>Drop photos here</h3>
@@ -887,6 +887,7 @@
                                 {% if v.status == 'video_complete' %}
                                 <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail({{ v.id }}); setTimeout(()=>toggleReoverlayForm({{ v.id }}),300)">Re-overlay</button>
                                 {% endif %}
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--red,#e74c3c);margin-left:4px" onclick="deleteVehicle({{ v.id }})">Delete</button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -1135,6 +1136,7 @@
                         const reoverlayBtn = v.status === 'video_complete'
                             ? `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail(${v.id}); setTimeout(()=>toggleReoverlayForm(${v.id}),300)">Re-overlay</button>`
                             : '';
+                        const deleteBtn = `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--red,#e74c3c);margin-left:4px" onclick="deleteVehicle(${v.id})">Delete</button>`;
                         return `<tr>
                             <td><strong>${name}</strong>${trim}</td>
                             <td style="font-family:monospace;font-size:0.8rem">${vin}</td>
@@ -1142,7 +1144,7 @@
                             <td>${price}</td>
                             <td><span class="badge ${v.status}">${status}</span></td>
                             <td>${cost}</td>
-                            <td style="white-space:nowrap"><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>${reoverlayBtn}</td>
+                            <td style="white-space:nowrap"><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>${reoverlayBtn}${deleteBtn}</td>
                         </tr>`;
                     }).join('');
 
@@ -1715,11 +1717,12 @@
                 const statusText = job.progress || job.status.replace(/_/g, ' ');
                 const fillClass = job.status === 'complete' ? 'complete' : job.status === 'error' ? 'error' : '';
                 const dlUrl = job.video_url || `/videos/${job.video_filename}`;
+                const dismissBtn = `<button class="btn" style="padding:3px 10px;font-size:0.75rem;color:var(--muted)" onclick="dismissJob('${jid}')" title="Dismiss">Dismiss</button>`;
                 const actions = job.status === 'complete'
-                    ? `<a class="btn" href="${dlUrl}" download style="padding:3px 10px;font-size:0.75rem">Download</a>`
+                    ? `<a class="btn" href="${dlUrl}" download style="padding:3px 10px;font-size:0.75rem">Download</a> ${dismissBtn}`
                     : job.status === 'error'
                     ? `<button class="btn" style="padding:3px 10px;font-size:0.75rem;color:var(--red)" onclick="dismissJob('${jid}')">Dismiss</button>`
-                    : `<div class="spinner-sm"></div>`;
+                    : `<div class="spinner-sm"></div> ${dismissBtn}`;
 
                 return `<div class="job-tracker-item" data-job-id="${jid}">
                     <div class="job-tracker-info">
@@ -2351,6 +2354,18 @@
                 }
             } catch (e) {
                 console.error('Failed to save branding:', e);
+            }
+        }
+
+        // ==================== DELETE VEHICLE ====================
+        async function deleteVehicle(vehicleId) {
+            if (!confirm('Are you sure you want to delete this vehicle? This cannot be undone.')) return;
+            try {
+                const res = await fetch(`/api/vehicle/${vehicleId}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error('Delete failed');
+                refreshVideosTab();
+            } catch (e) {
+                alert('Failed to delete vehicle: ' + e.message);
             }
         }
 
