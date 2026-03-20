@@ -130,6 +130,36 @@ def download_branding_asset(blob_name: str, local_path: str) -> bool:
         return False
 
 
+def download_video(blob_name: str, local_path: str) -> bool:
+    """Download a video from GCS to a local path.
+
+    Used to restore _clip.mp4 files for re-overlay after cold restarts.
+
+    Returns:
+        True if downloaded successfully, False otherwise.
+    """
+    if not is_gcs_enabled():
+        return False
+
+    try:
+        client = _get_client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        if not blob.exists():
+            logger.warning("Video not found in GCS: gs://%s/%s", GCS_BUCKET_NAME, blob_name)
+            return False
+
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+
+        blob.download_to_filename(local_path)
+        logger.info("Downloaded video gs://%s/%s -> %s", GCS_BUCKET_NAME, blob_name, local_path)
+        return True
+    except Exception as e:
+        logger.error("GCS video download failed for %s: %s: %s", blob_name, type(e).__name__, e)
+        return False
+
+
 def delete_video(blob_name: str) -> bool:
     """Delete a video from GCS."""
     if not is_gcs_enabled():
