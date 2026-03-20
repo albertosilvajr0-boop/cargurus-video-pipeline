@@ -33,8 +33,25 @@
             border-bottom: 1px solid var(--border);
             padding: 20px 0;
         }
+        header .header-inner { display: flex; align-items: center; justify-content: space-between; }
         header h1 { font-size: 1.4rem; }
         header .subtitle { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+        .refresh-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .refresh-btn:hover { color: var(--text); border-color: var(--accent); background: var(--surface); }
+        .refresh-btn svg { width: 18px; height: 18px; }
 
         /* Tabs */
         .tabs {
@@ -519,9 +536,16 @@
 </head>
 <body>
     <header>
-        <div class="container">
-            <h1>Vehicle Video Pipeline</h1>
-            <div class="subtitle">{{ dealer_name }} &mdash; Upload-First AI Video Generation</div>
+        <div class="container header-inner">
+            <div>
+                <h1>Vehicle Video Pipeline</h1>
+                <div class="subtitle">{{ dealer_name }} &mdash; Upload-First AI Video Generation</div>
+            </div>
+            <button class="refresh-btn" onclick="location.reload(true)" title="Refresh page">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4.5 9A7.5 7.5 0 0118 6.7M19.5 15A7.5 7.5 0 016 17.3"/>
+                </svg>
+            </button>
         </div>
     </header>
 
