@@ -38,7 +38,7 @@ from utils.database import (
     get_cost_analytics,
 )
 from utils.cost_tracker import CostTracker
-from utils.cloud_storage import upload_video as gcs_upload_video, is_gcs_enabled, upload_branding_asset, download_branding_asset
+from utils.cloud_storage import upload_video as gcs_upload_video, download_video as gcs_download_video, is_gcs_enabled, upload_branding_asset, download_branding_asset
 
 app = Flask(__name__)
 
@@ -370,6 +370,9 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
         if is_gcs_enabled():
             update_job(status="uploading", progress="Uploading video to cloud storage...")
             video_url = gcs_upload_video(final_path)
+            # Also upload the raw AI clip so re-overlay works after cold restart
+            if clip_path and Path(clip_path).exists():
+                gcs_upload_video(clip_path)
             if video_url:
                 logger.info("Video uploaded to GCS: %s", video_url)
             else:
@@ -532,6 +535,9 @@ def _process_upload(
         if is_gcs_enabled():
             update_job(status="uploading", progress="Uploading video to cloud storage...")
             video_url = gcs_upload_video(final_path)
+            # Also upload the raw AI clip so re-overlay works after cold restart
+            if clip_path and Path(clip_path).exists():
+                gcs_upload_video(clip_path)
             if video_url:
                 logger.info("Video uploaded to GCS: %s", video_url)
             else:
@@ -927,6 +933,12 @@ def api_reoverlay():
 
     def _run_reoverlay():
         try:
+            # Ensure the _clip.mp4 exists locally — download from GCS if needed
+            clip_local = settings.VIDEOS_DIR / f"{cargurus_id}_clip.mp4"
+            if not clip_local.exists() and is_gcs_enabled():
+                logger.info("Local clip missing, downloading from GCS: %s", clip_local.name)
+                gcs_download_video(f"videos/{clip_local.name}", str(clip_local))
+
             overlay = VideoOverlayPipeline()
             final_path = overlay.recompose_overlay(
                 vehicle_id_or_clip=cargurus_id,
