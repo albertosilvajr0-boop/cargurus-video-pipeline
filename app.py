@@ -252,6 +252,7 @@ def api_upload_vehicle():
     thread = threading.Thread(
         target=_process_upload,
         args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id, person_photo_path),
+        kwargs={"carfax_path": carfax_path},
         daemon=True,
     )
     thread.start()
@@ -501,6 +502,7 @@ def _process_upload(
     prompt_template: dict | None = None,
     prompt_template_id: str | None = None,
     person_photo_path: str | None = None,
+    carfax_path: str | None = None,
 ):
     """Background worker: extract → generate video → overlay → done."""
     logger.info(
@@ -559,6 +561,7 @@ def _process_upload(
             "drivetrain": vehicle_info.get("drivetrain") or "",
             "photo_paths": json.dumps(photo_paths),
             "sticker_path": sticker_path or "",
+            "carfax_path": carfax_path or "",
             "video_script": json.dumps(result),
             "status": "script_generated",
             "script_generated_at": datetime.now().isoformat(),
@@ -891,9 +894,14 @@ def api_media_upload():
       - files[]: multiple image files (required)
       - label: descriptive label for this batch (optional, e.g. "2024 Tahoe - Lot Photos")
       - group: group name to organize related files (optional, auto-generated if empty)
+      - sticker: window sticker image/PDF (optional)
+      - carfax: Carfax report image/PDF (optional)
     """
     files = request.files.getlist("files[]")
-    if not files or all(f.filename == "" for f in files):
+    has_photos = files and not all(f.filename == "" for f in files)
+    has_sticker = request.files.get("sticker") and request.files.get("sticker").filename
+    has_carfax = request.files.get("carfax") and request.files.get("carfax").filename
+    if not has_photos and not has_sticker and not has_carfax:
         return jsonify({"error": "At least one file is required"}), 400
 
     label = request.form.get("label", "").strip()
@@ -932,6 +940,38 @@ def api_media_upload():
             media_group=group,
         )
         saved_items.append({"id": item_id, "file_name": f.filename, "file_type": file_type})
+
+    # Handle dedicated sticker upload (separate field)
+    sticker = request.files.get("sticker")
+    if sticker and sticker.filename:
+        ext = Path(sticker.filename).suffix.lower() or ".jpg"
+        safe_name = f"sticker{ext}"
+        file_path = str(group_dir / safe_name)
+        sticker.save(file_path)
+        item_id = save_media_item(
+            label=label or group,
+            file_path=file_path,
+            file_name=sticker.filename or safe_name,
+            file_type="sticker",
+            media_group=group,
+        )
+        saved_items.append({"id": item_id, "file_name": sticker.filename, "file_type": "sticker"})
+
+    # Handle dedicated carfax upload (separate field)
+    carfax = request.files.get("carfax")
+    if carfax and carfax.filename:
+        ext = Path(carfax.filename).suffix.lower() or ".jpg"
+        safe_name = f"carfax{ext}"
+        file_path = str(group_dir / safe_name)
+        carfax.save(file_path)
+        item_id = save_media_item(
+            label=label or group,
+            file_path=file_path,
+            file_name=carfax.filename or safe_name,
+            file_type="carfax",
+            media_group=group,
+        )
+        saved_items.append({"id": item_id, "file_name": carfax.filename, "file_type": "carfax"})
 
     # Backup media files to GCS so they survive cold restarts
     if is_gcs_enabled():
@@ -1036,7 +1076,10 @@ def api_media_generate_video():
     photo_paths = [i["file_path"] for i in items if i["file_type"] == "photo"]
     sticker_items = [i for i in items if i["file_type"] == "sticker"]
     sticker_path = sticker_items[0]["file_path"] if sticker_items else None
+    carfax_items = [i for i in items if i["file_type"] == "carfax"]
+    carfax_path = carfax_items[0]["file_path"] if carfax_items else None
 
+    # Build all_image_paths: photos + sticker + carfax (Gemini sees all of them)
     all_image_paths = [i["file_path"] for i in items]
 
     if not photo_paths:
@@ -1082,6 +1125,7 @@ def api_media_generate_video():
     thread = threading.Thread(
         target=_process_upload,
         args=(job_id, upload_id, all_image_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id, person_photo_path),
+        kwargs={"carfax_path": carfax_path},
         daemon=True,
     )
     thread.start()

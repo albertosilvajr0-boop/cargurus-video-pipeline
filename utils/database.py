@@ -46,7 +46,8 @@ def init_db():
             -- Downloaded asset paths (from downloader)
             photo_paths TEXT DEFAULT '[]',
             sticker_path TEXT,
-            
+            carfax_path TEXT,
+
             -- Generated content
             video_script TEXT,
             video_path TEXT,
@@ -141,6 +142,11 @@ def init_db():
         conn.execute("SELECT video_url FROM vehicles LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE vehicles ADD COLUMN video_url TEXT")
+    # Migrate: add carfax_path column if missing
+    try:
+        conn.execute("SELECT carfax_path FROM vehicles LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN carfax_path TEXT")
     # Migrate: move people_photos.name into people table, add person_id
     try:
         conn.execute("SELECT person_id FROM people_photos LIMIT 1")
@@ -411,8 +417,9 @@ Precision of text and consistency of the environment are the highest priorities.
 From the vehicle info provided, extract:
 - Vehicle Identity: [Year] [Make] [Model] [Trim]
 - Visual Specs: Paint name, interior color, wheel type
-- Trust Data: Carfax status (e.g., "1-Owner") and MSRP
-- Key Features: Select 2 premium features for the walkaround
+- Trust Data: Carfax status (e.g., "1-Owner", "Clean Carfax") and MSRP
+- Safety Feature: Select 1 safety feature (e.g., Blind Spot Monitoring, Forward Collision Warning)
+- Tech Feature: Select 1 technology feature (e.g., Wireless Apple CarPlay, Head-Up Display)
 
 ## The "Zero Variation" Production Manifest
 Generate the veo_prompt using this structure:
@@ -425,7 +432,7 @@ Environment: A minimalist, high-end automotive studio. The floor is dark obsidia
 
 Motion Sequence:
 0-15s: Wide hero shot of the presenter and the car in the dark studio.
-15-45s: Close-up pans of [FEATURE 1] and [FEATURE 2]. The presenter gestures toward them with calm, professional movements.
+15-45s: Close-up pans of [SAFETY FEATURE] and [TECH FEATURE]. The presenter gestures toward them with calm, professional movements.
 45-60s: Camera pulls back to center the presenter.
 
 Text & Contact Integration:
@@ -542,11 +549,13 @@ def get_all_media(media_group: str | None = None) -> list:
 
 
 def get_media_groups() -> list:
-    """Get distinct media groups with counts."""
+    """Get distinct media groups with counts and document availability."""
     conn = get_connection()
     cursor = conn.execute(
         "SELECT media_group, MAX(label) as label, COUNT(*) as count, "
-        "MIN(created_at) as first_added, MAX(created_at) as last_added "
+        "MIN(created_at) as first_added, MAX(created_at) as last_added, "
+        "SUM(CASE WHEN file_type = 'sticker' THEN 1 ELSE 0 END) as has_sticker, "
+        "SUM(CASE WHEN file_type = 'carfax' THEN 1 ELSE 0 END) as has_carfax "
         "FROM media_library WHERE media_group != '' "
         "GROUP BY media_group ORDER BY MAX(created_at) DESC"
     )
