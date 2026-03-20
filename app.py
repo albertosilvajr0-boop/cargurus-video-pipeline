@@ -58,7 +58,7 @@ app = Flask(__name__)
 init_db()
 
 # Restore persisted data from Firestore/JSON backups (survives container restarts)
-from utils.data_persistence import restore_all, _get_firestore
+from utils.data_persistence import restore_all, _get_firestore, export_media_library
 _fs_client = _get_firestore()
 if _fs_client:
     logger.info("Firestore connected — data will persist across container restarts")
@@ -937,6 +937,9 @@ def api_media_upload():
     if is_gcs_enabled():
         gcs_upload_directory(str(group_dir), f"media/{group}")
 
+    # Persist media library records to Firestore
+    export_media_library()
+
     return jsonify({
         "status": "saved",
         "group": group,
@@ -965,6 +968,7 @@ def api_media_groups():
 def api_media_delete(item_id):
     """Delete a single media item."""
     if delete_media_item(item_id):
+        export_media_library()
         return jsonify({"status": "deleted"})
     return jsonify({"error": "Media item not found"}), 404
 
@@ -991,6 +995,7 @@ def api_media_delete_group(group_name):
     except Exception:
         pass
 
+    export_media_library()
     return jsonify({"status": "deleted", "count": count})
 
 
@@ -1002,6 +1007,7 @@ def api_media_rename_group(group_name):
     if not new_label:
         return jsonify({"error": "label is required"}), 400
     update_media_group_label(group_name, new_label)
+    export_media_library()
     return jsonify({"status": "updated"})
 
 

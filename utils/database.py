@@ -545,8 +545,8 @@ def get_media_groups() -> list:
     """Get distinct media groups with counts."""
     conn = get_connection()
     cursor = conn.execute(
-        "SELECT media_group, COUNT(*) as count, MIN(created_at) as first_added, "
-        "MAX(created_at) as last_added "
+        "SELECT media_group, MAX(label) as label, COUNT(*) as count, "
+        "MIN(created_at) as first_added, MAX(created_at) as last_added "
         "FROM media_library WHERE media_group != '' "
         "GROUP BY media_group ORDER BY MAX(created_at) DESC"
     )
