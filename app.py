@@ -36,6 +36,9 @@ from utils.database import (
     create_prompt_template, update_prompt_template, delete_prompt_template,
     save_branding_settings, get_branding_settings,
     get_cost_analytics,
+    save_media_item, get_all_media, get_media_groups,
+    get_media_items_by_ids, delete_media_item, delete_media_group,
+    update_media_group_label,
 )
 from utils.cost_tracker import CostTracker
 from utils.cloud_storage import upload_video as gcs_upload_video, download_video as gcs_download_video, is_gcs_enabled, upload_branding_asset, download_branding_asset
@@ -783,6 +786,197 @@ def api_delete_prompt_template(template_id):
     if delete_prompt_template(template_id):
         return jsonify({"status": "deleted"})
     return jsonify({"error": "Template not found"}), 404
+
+
+# --- Media Library API ---
+
+@app.route("/api/media/upload", methods=["POST"])
+def api_media_upload():
+    """
+    Upload photos/files to the media library for later video generation.
+
+    Form fields:
+      - files[]: multiple image files (required)
+      - label: descriptive label for this batch (optional, e.g. "2024 Tahoe - Lot Photos")
+      - group: group name to organize related files (optional, auto-generated if empty)
+    """
+    files = request.files.getlist("files[]")
+    if not files or all(f.filename == "" for f in files):
+        return jsonify({"error": "At least one file is required"}), 400
+
+    label = request.form.get("label", "").strip()
+    group = request.form.get("group", "").strip()
+
+    # Auto-generate group name if not provided
+    if not group:
+        group = f"media_{uuid.uuid4().hex[:10]}"
+
+    # Create group subdirectory
+    group_dir = settings.MEDIA_DIR / group
+    group_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_items = []
+    for i, f in enumerate(files):
+        if f.filename == "":
+            continue
+        ext = Path(f.filename).suffix.lower() or ".jpg"
+        safe_name = f"file_{i:03d}{ext}"
+        file_path = str(group_dir / safe_name)
+        f.save(file_path)
+
+        # Determine file type
+        file_type = "photo"
+        fname_lower = (f.filename or "").lower()
+        if "sticker" in fname_lower:
+            file_type = "sticker"
+        elif "carfax" in fname_lower:
+            file_type = "carfax"
+
+        item_id = save_media_item(
+            label=label or group,
+            file_path=file_path,
+            file_name=f.filename or safe_name,
+            file_type=file_type,
+            media_group=group,
+        )
+        saved_items.append({"id": item_id, "file_name": f.filename, "file_type": file_type})
+
+    return jsonify({
+        "status": "saved",
+        "group": group,
+        "label": label or group,
+        "items": saved_items,
+        "count": len(saved_items),
+    })
+
+
+@app.route("/api/media")
+def api_media_list():
+    """List all media items, optionally filtered by group."""
+    group = request.args.get("group")
+    items = get_all_media(media_group=group)
+    return jsonify(items)
+
+
+@app.route("/api/media/groups")
+def api_media_groups():
+    """List all media groups with counts."""
+    groups = get_media_groups()
+    return jsonify(groups)
+
+
+@app.route("/api/media/<int:item_id>", methods=["DELETE"])
+def api_media_delete(item_id):
+    """Delete a single media item."""
+    if delete_media_item(item_id):
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "Media item not found"}), 404
+
+
+@app.route("/api/media/group/<group_name>", methods=["DELETE"])
+def api_media_delete_group(group_name):
+    """Delete all media items in a group and clean up files."""
+    # Get items first to delete files
+    items = get_all_media(media_group=group_name)
+    for item in items:
+        try:
+            Path(item["file_path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    count = delete_media_group(group_name)
+
+    # Remove the group directory
+    group_dir = settings.MEDIA_DIR / group_name
+    try:
+        if group_dir.exists():
+            import shutil
+            shutil.rmtree(str(group_dir), ignore_errors=True)
+    except Exception:
+        pass
+
+    return jsonify({"status": "deleted", "count": count})
+
+
+@app.route("/api/media/group/<group_name>/rename", methods=["POST"])
+def api_media_rename_group(group_name):
+    """Rename/relabel a media group."""
+    data = request.get_json()
+    new_label = data.get("label", "").strip() if data else ""
+    if not new_label:
+        return jsonify({"error": "label is required"}), 400
+    update_media_group_label(group_name, new_label)
+    return jsonify({"status": "updated"})
+
+
+@app.route("/api/media/generate", methods=["POST"])
+def api_media_generate_video():
+    """
+    Generate a video from saved media library items.
+
+    JSON body:
+      - media_ids: list of media item IDs to use (required)
+      - dealer_phone: override phone (optional)
+      - dealer_address: override address (optional)
+      - cta_text: custom CTA text (optional)
+      - prompt_template_id: prompt template to use (optional)
+    """
+    data = request.get_json()
+    if not data or not data.get("media_ids"):
+        return jsonify({"error": "media_ids list is required"}), 400
+
+    media_ids = data["media_ids"]
+    items = get_media_items_by_ids(media_ids)
+    if not items:
+        return jsonify({"error": "No media items found for the given IDs"}), 404
+
+    # Separate photos, sticker, carfax
+    photo_paths = [i["file_path"] for i in items if i["file_type"] == "photo"]
+    sticker_items = [i for i in items if i["file_type"] == "sticker"]
+    sticker_path = sticker_items[0]["file_path"] if sticker_items else None
+
+    all_image_paths = [i["file_path"] for i in items]
+
+    if not photo_paths:
+        return jsonify({"error": "At least one photo is required in the selected media"}), 400
+
+    # Build upload ID and job
+    upload_id = f"media_{uuid.uuid4().hex[:12]}"
+    job_id = upload_id
+
+    with _jobs_lock:
+        _active_jobs[job_id] = {
+            "status": "extracting",
+            "progress": "Analyzing saved media with Gemini...",
+            "upload_id": upload_id,
+            "vehicle_id": None,
+            "started_at": datetime.now().isoformat(),
+        }
+
+    overrides = {
+        "dealer_phone": data.get("dealer_phone", ""),
+        "dealer_address": data.get("dealer_address", ""),
+        "cta_text": data.get("cta_text", ""),
+    }
+
+    prompt_template_id = data.get("prompt_template_id")
+    prompt_template = None
+    if prompt_template_id:
+        prompt_template = get_prompt_template(int(prompt_template_id))
+
+    thread = threading.Thread(
+        target=_process_upload,
+        args=(job_id, upload_id, all_image_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "upload_id": upload_id, "status": "processing"})
+
+
+@app.route("/media/<path:filename>")
+def serve_media(filename):
+    return send_from_directory(str(settings.MEDIA_DIR), filename)
 
 
 # --- File serving ---
