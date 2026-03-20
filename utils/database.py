@@ -104,6 +104,17 @@ def init_db():
             dealer_logo_path TEXT NOT NULL DEFAULT '',
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS media_library (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL DEFAULT '',
+            file_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_type TEXT NOT NULL DEFAULT 'photo',  -- photo, sticker, carfax
+            media_group TEXT NOT NULL DEFAULT '',      -- groups related files together
+            thumbnail_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
     try:
@@ -438,6 +449,100 @@ def delete_prompt_template(template_id: int) -> bool:
     if deleted:
         _auto_export_templates()
     return deleted
+
+
+### Media Library CRUD ###
+
+def save_media_item(label: str, file_path: str, file_name: str,
+                    file_type: str = "photo", media_group: str = "") -> int:
+    """Save a media item to the library. Returns the new media item ID."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO media_library (label, file_path, file_name, file_type, media_group) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (label, file_path, file_name, file_type, media_group),
+    )
+    item_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return item_id
+
+
+def get_all_media(media_group: str | None = None) -> list:
+    """Get all media items, optionally filtered by group."""
+    conn = get_connection()
+    if media_group:
+        cursor = conn.execute(
+            "SELECT * FROM media_library WHERE media_group = ? ORDER BY created_at DESC",
+            (media_group,),
+        )
+    else:
+        cursor = conn.execute("SELECT * FROM media_library ORDER BY created_at DESC")
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_media_groups() -> list:
+    """Get distinct media groups with counts."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT media_group, COUNT(*) as count, MIN(created_at) as first_added, "
+        "MAX(created_at) as last_added "
+        "FROM media_library WHERE media_group != '' "
+        "GROUP BY media_group ORDER BY MAX(created_at) DESC"
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_media_items_by_ids(ids: list[int]) -> list:
+    """Get media items by a list of IDs."""
+    if not ids:
+        return []
+    conn = get_connection()
+    placeholders = ",".join(["?"] * len(ids))
+    cursor = conn.execute(
+        f"SELECT * FROM media_library WHERE id IN ({placeholders}) ORDER BY file_type, id",
+        ids,
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def delete_media_item(item_id: int) -> bool:
+    """Delete a media item. Returns True if found and deleted."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM media_library WHERE id = ?", (item_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_media_group(group_name: str) -> int:
+    """Delete all media items in a group. Returns number deleted."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM media_library WHERE media_group = ?", (group_name,))
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
+def update_media_group_label(group_name: str, new_label: str) -> bool:
+    """Update the label for all items in a media group."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE media_library SET label = ? WHERE media_group = ?",
+        (new_label, group_name),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
 
 
 ### Branding Settings (persistent across deployments) ###

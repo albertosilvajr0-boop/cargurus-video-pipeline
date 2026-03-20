@@ -529,6 +529,7 @@
         <!-- Tabs -->
         <div class="tabs">
             <div class="tab active" data-tab="upload">Create Video</div>
+            <div class="tab" data-tab="media">My Media</div>
             <div class="tab" data-tab="videos">My Videos</div>
             <div class="tab" data-tab="costs">Costs</div>
             <div class="tab" data-tab="settings">Branding</div>
@@ -750,6 +751,82 @@
                 <h3 style="color:var(--red)">Something went wrong</h3>
                 <p id="errorMessage" style="margin-top:8px"></p>
                 <button class="btn" style="margin-top:12px" onclick="resetUpload()">Try Again</button>
+            </div>
+        </div>
+
+        <!-- ========== TAB: My Media ========== -->
+        <div id="tab-media" class="tab-content">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px">
+                <div>
+                    <h2 style="font-size:1.2rem">My Media Library</h2>
+                    <p style="color:var(--muted);font-size:0.85rem;margin-top:4px">Upload and save photos now, generate videos later.</p>
+                </div>
+            </div>
+
+            <!-- Upload to Media Library -->
+            <div class="form-section" style="margin-top:20px">
+                <h3>Save Photos to Library</h3>
+                <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
+                    Photographers can upload photos here. Someone else can come back later to generate the video.
+                </p>
+                <div class="form-field" style="margin-bottom:12px">
+                    <label>Label (e.g. "2024 Tahoe - Blue - Lot 5")</label>
+                    <input type="text" id="mediaLabel" placeholder="Describe this set of photos">
+                </div>
+                <div class="upload-zone" id="mediaUploadZone" style="padding:24px 16px">
+                    <h3>Drop photos here</h3>
+                    <p>or click to browse &mdash; JPG, PNG, HEIC (up to 20 photos per batch)</p>
+                    <input type="file" id="mediaFileInput" accept="image/*" multiple>
+                </div>
+                <div class="preview-grid" id="mediaPreviewGrid"></div>
+                <div style="display:flex;gap:12px;align-items:center;margin-top:8px">
+                    <button class="btn primary" id="mediaSaveBtn" onclick="saveToMediaLibrary()" disabled>Save to Library</button>
+                    <span id="mediaSaveStatus" style="font-size:0.85rem;color:var(--muted)"></span>
+                </div>
+            </div>
+
+            <!-- Saved Media Groups -->
+            <div style="margin-top:32px">
+                <h3 style="margin-bottom:16px">Saved Media</h3>
+                <div id="mediaGroupsList">
+                    <p style="color:var(--muted);font-size:0.85rem">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Generate Video from Media (shown when a group is selected) -->
+            <div id="mediaGenerateSection" style="display:none;margin-top:24px">
+                <div class="form-section" style="border-color:var(--accent)">
+                    <h3 id="mediaGenerateTitle">Generate Video</h3>
+                    <p style="color:var(--muted);font-size:0.8rem;margin-bottom:16px">
+                        Select which photos to use and customize the video options below.
+                    </p>
+                    <div class="preview-grid" id="mediaSelectGrid" style="margin-bottom:16px"></div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                        <div class="form-field">
+                            <label>Video Type</label>
+                            <select id="mediaVideoType">
+                                <option value="">Default (AI chooses style)</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>CTA Text (optional)</label>
+                            <input type="text" id="mediaCtaText" placeholder="e.g. Call Today!">
+                        </div>
+                        <div class="form-field">
+                            <label>Phone Override</label>
+                            <input type="text" id="mediaPhone" placeholder="Uses branding default">
+                        </div>
+                        <div class="form-field">
+                            <label>Address Override</label>
+                            <input type="text" id="mediaAddress" placeholder="Uses branding default">
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:12px;align-items:center">
+                        <button class="btn primary" id="mediaGenerateBtn" onclick="generateFromMedia()">Generate Video</button>
+                        <button class="btn" onclick="closeMediaGenerate()">Cancel</button>
+                        <span id="mediaGenerateStatus" style="font-size:0.85rem;color:var(--muted)"></span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1018,6 +1095,7 @@
             const tabEl = document.querySelector(`.tab[data-tab="${tabName}"]`);
             if (tabEl) tabEl.classList.add('active');
             document.getElementById('tab-' + tabName).classList.add('active');
+            if (tabName === 'media') loadMediaLibrary();
             if (tabName === 'videos') refreshVideosTab();
             if (tabName === 'costs') loadCostsTab();
             if (tabName === 'admin') loadPromptTemplates();
@@ -1900,6 +1978,298 @@
 
         // Load templates on page load
         loadPromptTemplates();
+
+        // ==================== MY MEDIA LIBRARY ====================
+        let mediaFiles = [];
+        let selectedMediaGroup = null;
+        let selectedMediaIds = new Set();
+
+        // Wire up media upload zone
+        (function() {
+            const zone = document.getElementById('mediaUploadZone');
+            const input = document.getElementById('mediaFileInput');
+
+            zone.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => {
+                for (const f of Array.from(input.files)) {
+                    if (mediaFiles.length < 20) mediaFiles.push(f);
+                }
+                input.value = '';
+                renderMediaPreviews();
+            });
+
+            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                for (const f of Array.from(e.dataTransfer.files)) {
+                    if (mediaFiles.length < 20) mediaFiles.push(f);
+                }
+                renderMediaPreviews();
+            });
+        })();
+
+        function renderMediaPreviews() {
+            const container = document.getElementById('mediaPreviewGrid');
+            container.innerHTML = mediaFiles.map((f, i) => {
+                const url = URL.createObjectURL(f);
+                return `<div class="preview-item">
+                    <img src="${url}" alt="${f.name}">
+                    <button class="remove-btn" onclick="removeMediaFile(${i})">&times;</button>
+                    <div class="label">${f.name.length > 12 ? f.name.substring(0, 10) + '...' : f.name}</div>
+                </div>`;
+            }).join('');
+            document.getElementById('mediaSaveBtn').disabled = mediaFiles.length === 0;
+        }
+
+        function removeMediaFile(index) {
+            mediaFiles.splice(index, 1);
+            renderMediaPreviews();
+        }
+
+        async function saveToMediaLibrary() {
+            if (mediaFiles.length === 0) return;
+
+            const btn = document.getElementById('mediaSaveBtn');
+            const status = document.getElementById('mediaSaveStatus');
+            btn.disabled = true;
+            status.textContent = 'Saving...';
+            status.style.color = 'var(--cyan)';
+
+            const formData = new FormData();
+            for (const f of mediaFiles) {
+                formData.append('files[]', f);
+            }
+            const label = document.getElementById('mediaLabel').value.trim();
+            if (label) formData.append('label', label);
+
+            try {
+                const res = await fetch('/api/media/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    status.textContent = data.error || 'Upload failed';
+                    status.style.color = 'var(--red)';
+                    btn.disabled = false;
+                    return;
+                }
+
+                status.textContent = `Saved ${data.count} file(s) to library!`;
+                status.style.color = 'var(--green)';
+                setTimeout(() => { status.textContent = ''; }, 4000);
+
+                // Reset form
+                mediaFiles = [];
+                document.getElementById('mediaPreviewGrid').innerHTML = '';
+                document.getElementById('mediaLabel').value = '';
+                btn.disabled = true;
+
+                // Refresh the groups list
+                loadMediaLibrary();
+            } catch (e) {
+                status.textContent = 'Network error: ' + e.message;
+                status.style.color = 'var(--red)';
+                btn.disabled = false;
+            }
+        }
+
+        async function loadMediaLibrary() {
+            const container = document.getElementById('mediaGroupsList');
+            try {
+                const res = await fetch('/api/media/groups');
+                const groups = await res.json();
+
+                if (groups.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><h3>No saved media yet</h3><p>Upload photos above to get started. A photographer can save photos now and someone else can generate videos later.</p></div>';
+                    return;
+                }
+
+                container.innerHTML = groups.map(g => {
+                    const date = new Date(g.last_added).toLocaleDateString();
+                    return `<div class="form-section" style="margin-bottom:12px;cursor:default">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <div>
+                                <h3 style="margin:0;font-size:1rem">${escapeHtml(g.media_group)}</h3>
+                                <span style="color:var(--muted);font-size:0.8rem">${g.count} file(s) &middot; Added ${date}</span>
+                            </div>
+                            <div style="display:flex;gap:8px">
+                                <button class="btn" style="padding:5px 14px;font-size:0.85rem;background:var(--accent);color:white" onclick="openMediaGroup('${escapeHtml(g.media_group)}')">Use for Video</button>
+                                <button class="btn" style="padding:5px 14px;font-size:0.85rem" onclick="previewMediaGroup('${escapeHtml(g.media_group)}')">Preview</button>
+                                <button class="btn" style="padding:5px 14px;font-size:0.85rem;color:var(--red)" onclick="deleteMediaGroup('${escapeHtml(g.media_group)}')">Delete</button>
+                            </div>
+                        </div>
+                        <div id="media-preview-${g.media_group}" style="display:none;margin-top:12px"></div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                container.innerHTML = '<p style="color:var(--red)">Failed to load media library.</p>';
+            }
+        }
+
+        async function previewMediaGroup(group) {
+            const previewEl = document.getElementById('media-preview-' + group);
+            if (!previewEl) return;
+
+            // Toggle visibility
+            if (previewEl.style.display !== 'none') {
+                previewEl.style.display = 'none';
+                return;
+            }
+
+            previewEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">Loading...</p>';
+            previewEl.style.display = 'block';
+
+            try {
+                const res = await fetch(`/api/media?group=${encodeURIComponent(group)}`);
+                const items = await res.json();
+
+                previewEl.innerHTML = `<div class="preview-grid">${items.map(item => {
+                    const src = `/media/${group}/${item.file_path.split('/').pop()}`;
+                    return `<div class="preview-item">
+                        <img src="${src}" alt="${escapeHtml(item.file_name)}">
+                        <div class="label">${escapeHtml(item.file_name.length > 12 ? item.file_name.substring(0, 10) + '..' : item.file_name)}</div>
+                    </div>`;
+                }).join('')}</div>`;
+            } catch (e) {
+                previewEl.innerHTML = '<p style="color:var(--red);font-size:0.85rem">Failed to load preview.</p>';
+            }
+        }
+
+        async function openMediaGroup(group) {
+            selectedMediaGroup = group;
+            selectedMediaIds = new Set();
+
+            const section = document.getElementById('mediaGenerateSection');
+            const grid = document.getElementById('mediaSelectGrid');
+            const titleEl = document.getElementById('mediaGenerateTitle');
+
+            titleEl.textContent = `Generate Video from: ${group}`;
+            grid.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">Loading photos...</p>';
+            section.style.display = 'block';
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // Populate video type dropdown
+            const select = document.getElementById('mediaVideoType');
+            select.innerHTML = '<option value="">Default (AI chooses style)</option>';
+            promptTemplates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.display_name;
+                select.appendChild(opt);
+            });
+
+            try {
+                const res = await fetch(`/api/media?group=${encodeURIComponent(group)}`);
+                const items = await res.json();
+
+                // Select all by default
+                items.forEach(i => selectedMediaIds.add(i.id));
+
+                grid.innerHTML = items.map(item => {
+                    const src = `/media/${group}/${item.file_path.split('/').pop()}`;
+                    const checked = selectedMediaIds.has(item.id) ? 'checked' : '';
+                    const typeLabel = item.file_type !== 'photo' ? `<span style="background:var(--accent);color:white;font-size:0.65rem;padding:1px 5px;border-radius:3px;margin-left:4px">${item.file_type}</span>` : '';
+                    return `<div class="preview-item" id="media-sel-${item.id}" style="cursor:pointer;border-color:${selectedMediaIds.has(item.id) ? 'var(--accent)' : 'var(--border)'}" onclick="toggleMediaSelect(${item.id})">
+                        <img src="${src}" alt="${escapeHtml(item.file_name)}">
+                        <div style="position:absolute;top:4px;left:4px;background:${selectedMediaIds.has(item.id) ? 'var(--accent)' : 'var(--surface2)'};width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;border:1px solid var(--border)">${selectedMediaIds.has(item.id) ? '&#10003;' : ''}</div>
+                        <div class="label">${item.file_type}${typeLabel}</div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                grid.innerHTML = '<p style="color:var(--red);font-size:0.85rem">Failed to load media.</p>';
+            }
+        }
+
+        function toggleMediaSelect(id) {
+            if (selectedMediaIds.has(id)) {
+                selectedMediaIds.delete(id);
+            } else {
+                selectedMediaIds.add(id);
+            }
+            const el = document.getElementById('media-sel-' + id);
+            if (el) {
+                el.style.borderColor = selectedMediaIds.has(id) ? 'var(--accent)' : 'var(--border)';
+                const check = el.querySelector('div[style*="position:absolute"]');
+                if (check) {
+                    check.style.background = selectedMediaIds.has(id) ? 'var(--accent)' : 'var(--surface2)';
+                    check.innerHTML = selectedMediaIds.has(id) ? '&#10003;' : '';
+                }
+            }
+        }
+
+        function closeMediaGenerate() {
+            document.getElementById('mediaGenerateSection').style.display = 'none';
+            selectedMediaGroup = null;
+            selectedMediaIds = new Set();
+        }
+
+        async function generateFromMedia() {
+            if (selectedMediaIds.size === 0) {
+                alert('Please select at least one photo.');
+                return;
+            }
+
+            const btn = document.getElementById('mediaGenerateBtn');
+            const status = document.getElementById('mediaGenerateStatus');
+            btn.disabled = true;
+            status.textContent = 'Starting video generation...';
+            status.style.color = 'var(--cyan)';
+
+            const body = {
+                media_ids: Array.from(selectedMediaIds),
+                dealer_phone: document.getElementById('mediaPhone').value,
+                dealer_address: document.getElementById('mediaAddress').value,
+                cta_text: document.getElementById('mediaCtaText').value,
+            };
+            const templateId = document.getElementById('mediaVideoType').value;
+            if (templateId) body.prompt_template_id = templateId;
+
+            try {
+                const res = await fetch('/api/media/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    status.textContent = data.error || 'Failed';
+                    status.style.color = 'var(--red)';
+                    btn.disabled = false;
+                    return;
+                }
+
+                // Track the job in the global job tracker
+                trackJob(data.job_id, { status: 'extracting', vehicle_name: selectedMediaGroup || 'Media Upload' });
+
+                status.innerHTML = 'Video generation started! <a href="#" onclick="switchToTab(\'videos\'); return false;" style="color:var(--accent)">Track progress in My Videos</a>';
+                status.style.color = 'var(--green)';
+
+                // Switch to Create Video tab to show progress
+                switchToTab('videos');
+            } catch (e) {
+                status.textContent = 'Network error: ' + e.message;
+                status.style.color = 'var(--red)';
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteMediaGroup(group) {
+            if (!confirm(`Delete all photos in "${group}"? This cannot be undone.`)) return;
+
+            try {
+                const res = await fetch(`/api/media/group/${encodeURIComponent(group)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadMediaLibrary();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Failed to delete');
+                }
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            }
+        }
 
         // ==================== LOCAL STORAGE PERSISTENCE ====================
         const STORAGE_KEYS = {
