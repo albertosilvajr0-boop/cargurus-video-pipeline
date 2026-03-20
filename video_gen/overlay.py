@@ -48,6 +48,78 @@ class VideoOverlayPipeline:
         except (subprocess.CalledProcessError, FileNotFoundError):
             raise RuntimeError("ffmpeg is required — install it: sudo apt install ffmpeg")
 
+    def recompose_overlay(
+        self,
+        vehicle_id_or_clip: str,
+        vehicle_name: str | None = None,
+        price: float | int | None = None,
+        hero_photo_path: str | None = None,
+        dealer_phone: str = "",
+        dealer_address: str = "",
+        dealer_logo_path: str = "",
+        cta_text: str = "",
+        vehicle_specs: dict | None = None,
+    ) -> str | None:
+        """
+        Re-apply overlays to an already-downloaded AI clip — zero API cost.
+
+        Finds the original _clip.mp4, re-generates intro/outro frames with
+        updated branding, and produces a new _final.mp4.
+
+        Args:
+            vehicle_id_or_clip: Either a vehicle cargurus_id (e.g. "vin_1C4RJFAG...")
+                                or a direct path to a _clip.mp4 file.
+            vehicle_name: Vehicle name for overlays (required if not loading from DB).
+            price: Updated price (or None to omit).
+            hero_photo_path: Path to hero photo (None for text-only intro).
+            dealer_phone: Override phone number.
+            dealer_address: Override address.
+            dealer_logo_path: Override logo path.
+            cta_text: Override CTA text.
+            vehicle_specs: Optional specs dict for text-only intro.
+
+        Returns:
+            Path to the new final video, or None on failure.
+        """
+        # Resolve the clip path
+        clip_path = None
+        output_name = None
+
+        if Path(vehicle_id_or_clip).exists() and vehicle_id_or_clip.endswith(".mp4"):
+            # Direct path to clip file
+            clip_path = vehicle_id_or_clip
+            stem = Path(clip_path).stem
+            output_name = stem.replace("_clip", "").replace("_final", "")
+        else:
+            # Treat as cargurus_id — look for the _clip.mp4 in the videos dir
+            output_name = vehicle_id_or_clip
+            candidate = settings.VIDEOS_DIR / f"{output_name}_clip.mp4"
+            if candidate.exists():
+                clip_path = str(candidate)
+            else:
+                logger.error("No clip file found for %s (looked for %s)", vehicle_id_or_clip, candidate)
+                console.print(f"[red]No clip file found: {candidate}[/red]")
+                console.print("[dim]The original AI clip (_clip.mp4) must exist to re-apply overlays.[/dim]")
+                return None
+
+        logger.info("Re-overlay starting — clip=%s, name=%s", clip_path, vehicle_name)
+        console.print(
+            f"[bold cyan]Re-applying overlays[/bold cyan] (local FFmpeg only — [green]$0 API cost[/green])"
+        )
+
+        return self.compose_final_video(
+            ai_clip_path=clip_path,
+            hero_photo_path=hero_photo_path,
+            vehicle_name=vehicle_name or output_name,
+            price=price,
+            output_name=output_name,
+            dealer_phone=dealer_phone,
+            dealer_address=dealer_address,
+            dealer_logo_path=dealer_logo_path,
+            cta_text=cta_text,
+            vehicle_specs=vehicle_specs,
+        )
+
     def compose_final_video(
         self,
         ai_clip_path: str,

@@ -841,6 +841,139 @@ def api_trim_video():
     })
 
 
+@app.route("/api/reoverlay", methods=["POST"])
+def api_reoverlay():
+    """
+    Re-apply overlays to an existing AI clip — $0 API cost.
+
+    Uses the saved _clip.mp4 file and re-generates intro/outro with
+    updated branding, price, CTA, etc. No video generation API calls.
+
+    JSON body:
+      - vehicle_id: int (required) — database vehicle ID
+      - price: updated price (optional, keeps original if omitted)
+      - dealer_phone: override phone (optional)
+      - dealer_address: override address (optional)
+      - cta_text: custom CTA text (optional)
+      - dealer_name: override dealer name for outro (optional)
+    """
+    data = request.get_json()
+    if not data or not data.get("vehicle_id"):
+        return jsonify({"error": "vehicle_id is required"}), 400
+
+    vehicle_id = int(data["vehicle_id"])
+
+    # Load vehicle from database
+    from utils.database import get_connection
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "Vehicle not found"}), 404
+
+    cargurus_id = row["cargurus_id"]
+
+    # Build vehicle name from DB
+    parts = [str(row["year"] or ""), row["make"] or "", row["model"] or "", row["trim"] or ""]
+    vehicle_name = " ".join(p for p in parts if p).strip() or cargurus_id
+
+    # Resolve price — use override if provided, else keep original
+    price = data.get("price")
+    if price is None and row["price"]:
+        price = row["price"]
+
+    # Build specs for text-only intro
+    vehicle_specs = {
+        "engine": row["engine"] or "",
+        "drivetrain": row["drivetrain"] or "",
+        "body_style": "",
+    }
+
+    # Find hero photo if available
+    hero_photo = None
+    if row["photo_paths"]:
+        try:
+            photo_list = json.loads(row["photo_paths"])
+            if photo_list and Path(photo_list[0]).exists():
+                hero_photo = photo_list[0]
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+    # Run re-overlay in background
+    job_id = f"reoverlay_{cargurus_id}_{uuid.uuid4().hex[:6]}"
+    with _jobs_lock:
+        _active_jobs[job_id] = {
+            "status": "compositing",
+            "progress": f"Re-applying overlays for {vehicle_name} ($0 API cost)...",
+            "vehicle_id": vehicle_id,
+            "vehicle_name": vehicle_name,
+            "started_at": datetime.now().isoformat(),
+        }
+
+    def _run_reoverlay():
+        try:
+            overlay = VideoOverlayPipeline()
+            final_path = overlay.recompose_overlay(
+                vehicle_id_or_clip=cargurus_id,
+                vehicle_name=vehicle_name,
+                price=price,
+                hero_photo_path=hero_photo,
+                dealer_phone=data.get("dealer_phone") or "",
+                dealer_address=data.get("dealer_address") or "",
+                dealer_logo_path=settings.DEALER_LOGO_PATH,
+                cta_text=data.get("cta_text") or "",
+                vehicle_specs=vehicle_specs,
+            )
+
+            if not final_path:
+                with _jobs_lock:
+                    _active_jobs[job_id].update(
+                        status="error",
+                        progress="Re-overlay failed — make sure the _clip.mp4 file still exists",
+                    )
+                return
+
+            # Upload to GCS if configured
+            video_url = None
+            if is_gcs_enabled():
+                video_url = gcs_upload_video(final_path)
+
+            # Update vehicle record (no cost change — this was free)
+            status_kwargs = dict(
+                video_path=final_path,
+                video_generated_at=datetime.now().isoformat(),
+            )
+            if video_url:
+                status_kwargs["video_url"] = video_url
+            update_vehicle_status(vehicle_id, "video_complete", **status_kwargs)
+
+            with _jobs_lock:
+                _active_jobs[job_id].update(
+                    status="complete",
+                    progress="Overlays updated — $0 API cost!",
+                    video_path=final_path,
+                    video_filename=Path(final_path).name,
+                    video_url=video_url,
+                )
+
+        except Exception as e:
+            logger.error("Re-overlay error (job=%s): %s", job_id, e)
+            with _jobs_lock:
+                _active_jobs[job_id].update(status="error", progress=f"Error: {e}")
+
+    thread = threading.Thread(target=_run_reoverlay, daemon=True)
+    thread.start()
+
+    return jsonify({
+        "job_id": job_id,
+        "vehicle_id": vehicle_id,
+        "status": "processing",
+        "message": "Re-applying overlays using local FFmpeg — $0 API cost",
+    })
+
+
 @app.route("/api/logs")
 def api_recent_logs():
     """Return the most recent log entries for debugging.
