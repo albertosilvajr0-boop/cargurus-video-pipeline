@@ -16,10 +16,11 @@ VIDEOS_DIR = OUTPUT_DIR / "videos"
 UPLOADS_DIR = OUTPUT_DIR / "uploads"
 BRANDING_DIR = OUTPUT_DIR / "branding"
 MEDIA_DIR = OUTPUT_DIR / "media"
+PEOPLE_DIR = OUTPUT_DIR / "people"
 DB_PATH = PROJECT_ROOT / "pipeline.db"
 
 # Create output directories
-for d in [PHOTOS_DIR, STICKERS_DIR, SCRIPTS_DIR, VIDEOS_DIR, UPLOADS_DIR, BRANDING_DIR, MEDIA_DIR]:
+for d in [PHOTOS_DIR, STICKERS_DIR, SCRIPTS_DIR, VIDEOS_DIR, UPLOADS_DIR, BRANDING_DIR, MEDIA_DIR, PEOPLE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # API Keys

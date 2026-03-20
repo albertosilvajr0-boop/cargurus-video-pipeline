@@ -115,6 +115,14 @@ def init_db():
             thumbnail_url TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS people_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
     try:
@@ -555,6 +563,49 @@ def update_media_group_label(group_name: str, new_label: str) -> bool:
     conn.commit()
     conn.close()
     return updated
+
+
+### People Photos CRUD ###
+
+def save_people_photo(name: str, file_path: str, file_name: str) -> int:
+    """Save a people photo to the library. Returns the new photo ID."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO people_photos (name, file_path, file_name) VALUES (?, ?, ?)",
+        (name, file_path, file_name),
+    )
+    item_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return item_id
+
+
+def get_all_people_photos() -> list:
+    """Get all people photos."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM people_photos ORDER BY created_at DESC")
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_people_photo(photo_id: int) -> dict | None:
+    """Get a single people photo by ID."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM people_photos WHERE id = ?", (photo_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_people_photo(photo_id: int) -> bool:
+    """Delete a people photo. Returns True if found and deleted."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM people_photos WHERE id = ?", (photo_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 ### Branding Settings (persistent across deployments) ###

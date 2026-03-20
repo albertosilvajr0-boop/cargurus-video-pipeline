@@ -608,6 +608,18 @@
                         </div>
                     </div>
 
+                    <!-- Person in Video (VIN mode) -->
+                    <div class="form-section" id="vinPersonSection">
+                        <h3>Person in Video</h3>
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Choose who appears as the presenter in your video.</p>
+                        <div class="form-field">
+                            <select id="vinPersonSelect">
+                                <option value="ai">Let AI Generate Person</option>
+                            </select>
+                        </div>
+                        <div id="vinPersonPreview" style="margin-top:8px"></div>
+                    </div>
+
                     <div style="text-align:center; margin: 24px 0;">
                         <button class="btn primary lg" id="vinGenerateBtn" onclick="submitVin()" disabled>
                             Generate Video from VIN
@@ -668,6 +680,18 @@
                             </div>
                             <div class="form-field"></div>
                         </div>
+                    </div>
+
+                    <!-- Person in Video -->
+                    <div class="form-section" id="uploadPersonSection">
+                        <h3>Person in Video</h3>
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Choose who appears as the presenter in your video.</p>
+                        <div class="form-field">
+                            <select id="uploadPersonSelect">
+                                <option value="ai">Let AI Generate Person</option>
+                            </select>
+                        </div>
+                        <div id="uploadPersonPreview" style="margin-top:8px"></div>
                     </div>
 
                     <!-- Submit button -->
@@ -785,6 +809,34 @@
                 </div>
             </div>
 
+            <!-- People Photos Section -->
+            <div class="form-section" style="margin-top:24px">
+                <h3>People Photos</h3>
+                <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
+                    Upload photos of people to feature in your videos. When generating a video, you can choose one of these people or let the AI generate a person.
+                </p>
+                <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px">
+                    <div class="form-field" style="flex:1">
+                        <label>Person Name</label>
+                        <input type="text" id="personName" placeholder="e.g. John (Sales Rep)">
+                    </div>
+                    <div>
+                        <label class="btn" style="cursor:pointer;padding:8px 16px;display:inline-block">
+                            Choose Photo
+                            <input type="file" id="personPhotoInput" accept="image/*" style="display:none" onchange="onPersonPhotoSelected(this)">
+                        </label>
+                    </div>
+                    <button class="btn primary" id="personSaveBtn" onclick="savePersonPhoto()" disabled>Upload</button>
+                </div>
+                <div id="personPhotoPreview" style="margin-bottom:12px"></div>
+                <span id="personSaveStatus" style="font-size:0.85rem;color:var(--muted)"></span>
+
+                <!-- Saved People Grid -->
+                <div id="peoplePhotosList" style="margin-top:16px">
+                    <p style="color:var(--muted);font-size:0.85rem">Loading...</p>
+                </div>
+            </div>
+
             <!-- Saved Media Groups -->
             <div style="margin-top:32px">
                 <h3 style="margin-bottom:16px">Saved Media</h3>
@@ -821,6 +873,13 @@
                             <input type="text" id="mediaAddress" placeholder="Uses branding default">
                         </div>
                     </div>
+                    <div class="form-field" style="margin-bottom:12px">
+                        <label>Person in Video</label>
+                        <select id="mediaPersonSelect">
+                            <option value="ai">Let AI Generate Person</option>
+                        </select>
+                    </div>
+                    <div id="mediaPersonPreview" style="margin-bottom:12px"></div>
                     <div style="display:flex;gap:12px;align-items:center">
                         <button class="btn primary" id="mediaGenerateBtn" onclick="generateFromMedia()">Generate Video</button>
                         <button class="btn" onclick="closeMediaGenerate()">Cancel</button>
@@ -1254,6 +1313,7 @@
             const price = priceRaw ? parseFloat(priceRaw) : null;
 
             const templateId = document.getElementById('videoTypeSelect').value;
+            const vinPersonOption = document.getElementById('vinPersonSelect').value;
             const body = {
                 vin,
                 price,
@@ -1261,6 +1321,7 @@
                 dealer_address: document.getElementById('vinAddress').value,
                 cta_text: document.getElementById('vinCTA').value,
                 prompt_template_id: templateId || null,
+                person_option: vinPersonOption,
             };
 
             // Switch to progress view with VIN-specific steps
@@ -1391,6 +1452,10 @@
             }
             if (stickerFile) formData.append('sticker', stickerFile);
             if (carfaxFile) formData.append('carfax', carfaxFile);
+
+            // Add person option
+            const personOption = document.getElementById('uploadPersonSelect').value;
+            formData.append('person_option', personOption);
 
             // Add overrides
             const phone = document.getElementById('overridePhone').value;
@@ -2224,6 +2289,7 @@
                 dealer_phone: document.getElementById('mediaPhone').value,
                 dealer_address: document.getElementById('mediaAddress').value,
                 cta_text: document.getElementById('mediaCtaText').value,
+                person_option: document.getElementById('mediaPersonSelect').value,
             };
             const templateId = document.getElementById('mediaVideoType').value;
             if (templateId) body.prompt_template_id = templateId;
@@ -2273,6 +2339,156 @@
                 alert('Network error: ' + e.message);
             }
         }
+
+        // ==================== PEOPLE PHOTOS ====================
+        let personPhotoFile = null;
+        let peoplePhotos = [];
+
+        function onPersonPhotoSelected(input) {
+            personPhotoFile = input.files[0] || null;
+            const preview = document.getElementById('personPhotoPreview');
+            if (personPhotoFile) {
+                const url = URL.createObjectURL(personPhotoFile);
+                preview.innerHTML = `<div class="preview-item" style="width:80px;height:80px;display:inline-block">
+                    <img src="${url}" alt="Person">
+                </div>`;
+            } else {
+                preview.innerHTML = '';
+            }
+            document.getElementById('personSaveBtn').disabled = !personPhotoFile || !document.getElementById('personName').value.trim();
+        }
+
+        document.getElementById('personName').addEventListener('input', function() {
+            document.getElementById('personSaveBtn').disabled = !personPhotoFile || !this.value.trim();
+        });
+
+        async function savePersonPhoto() {
+            if (!personPhotoFile) return;
+            const name = document.getElementById('personName').value.trim();
+            if (!name) return;
+
+            const btn = document.getElementById('personSaveBtn');
+            const status = document.getElementById('personSaveStatus');
+            btn.disabled = true;
+            status.textContent = 'Uploading...';
+            status.style.color = 'var(--cyan)';
+
+            const formData = new FormData();
+            formData.append('photo', personPhotoFile);
+            formData.append('name', name);
+
+            try {
+                const res = await fetch('/api/people/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    status.textContent = data.error || 'Upload failed';
+                    status.style.color = 'var(--red)';
+                    btn.disabled = false;
+                    return;
+                }
+
+                status.textContent = 'Person photo saved!';
+                status.style.color = 'var(--green)';
+                setTimeout(() => { status.textContent = ''; }, 3000);
+
+                // Reset form
+                personPhotoFile = null;
+                document.getElementById('personName').value = '';
+                document.getElementById('personPhotoInput').value = '';
+                document.getElementById('personPhotoPreview').innerHTML = '';
+                btn.disabled = true;
+
+                loadPeoplePhotos();
+            } catch (e) {
+                status.textContent = 'Network error: ' + e.message;
+                status.style.color = 'var(--red)';
+                btn.disabled = false;
+            }
+        }
+
+        async function loadPeoplePhotos() {
+            const container = document.getElementById('peoplePhotosList');
+            try {
+                const res = await fetch('/api/people');
+                peoplePhotos = await res.json();
+
+                if (peoplePhotos.length === 0) {
+                    container.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No people photos yet. Upload one above.</p>';
+                } else {
+                    container.innerHTML = `<div class="preview-grid">${peoplePhotos.map(p => {
+                        const src = `/people/${p.file_path.split('/').pop()}`;
+                        return `<div class="preview-item" style="position:relative">
+                            <img src="${src}" alt="${escapeHtml(p.name)}">
+                            <button class="remove-btn" onclick="deletePersonPhoto(${p.id})">&times;</button>
+                            <div class="label">${escapeHtml(p.name)}</div>
+                        </div>`;
+                    }).join('')}</div>`;
+                }
+
+                // Refresh person selectors in all forms
+                populatePersonSelectors();
+            } catch (e) {
+                container.innerHTML = '<p style="color:var(--red);font-size:0.85rem">Failed to load people photos.</p>';
+            }
+        }
+
+        async function deletePersonPhoto(id) {
+            if (!confirm('Delete this person photo?')) return;
+            try {
+                const res = await fetch(`/api/people/${id}`, { method: 'DELETE' });
+                if (res.ok) loadPeoplePhotos();
+                else alert('Failed to delete');
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            }
+        }
+
+        function populatePersonSelectors() {
+            const selectors = ['uploadPersonSelect', 'vinPersonSelect', 'mediaPersonSelect'];
+            selectors.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                if (!select) return;
+                const currentVal = select.value;
+                select.innerHTML = '<option value="ai">Let AI Generate Person</option>';
+                peoplePhotos.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    select.appendChild(opt);
+                });
+                // Restore previous selection if still valid
+                if (currentVal && select.querySelector(`option[value="${currentVal}"]`)) {
+                    select.value = currentVal;
+                }
+            });
+
+            // Add preview handlers
+            selectors.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                if (!select) return;
+                select.onchange = function() {
+                    const previewId = selectId.replace('Select', 'Preview');
+                    const previewEl = document.getElementById(previewId);
+                    if (!previewEl) return;
+                    if (this.value === 'ai') {
+                        previewEl.innerHTML = '';
+                    } else {
+                        const person = peoplePhotos.find(p => p.id == this.value);
+                        if (person) {
+                            const src = `/people/${person.file_path.split('/').pop()}`;
+                            previewEl.innerHTML = `<div class="preview-item" style="width:60px;height:60px;display:inline-block">
+                                <img src="${src}" alt="${escapeHtml(person.name)}">
+                                <div class="label">${escapeHtml(person.name)}</div>
+                            </div>`;
+                        }
+                    }
+                };
+            });
+        }
+
+        // Load people photos on startup
+        loadPeoplePhotos();
 
         // ==================== LOCAL STORAGE PERSISTENCE ====================
         const STORAGE_KEYS = {

@@ -40,6 +40,7 @@ from utils.database import (
     get_media_items_by_ids, delete_media_item, delete_media_group,
     update_media_group_label,
     delete_vehicle,
+    save_people_photo, get_all_people_photos, get_people_photo, delete_people_photo,
 )
 from utils.cost_tracker import CostTracker
 from utils.cloud_storage import (
@@ -217,6 +218,17 @@ def api_upload_vehicle():
         "cta_text": request.form.get("cta_text", ""),
     }
 
+    # Person photo option: "ai" (let AI generate), or a people photo ID
+    person_option = request.form.get("person_option", "ai")
+    person_photo_path = None
+    if person_option and person_option != "ai":
+        try:
+            person_record = get_people_photo(int(person_option))
+            if person_record and Path(person_record["file_path"]).exists():
+                person_photo_path = person_record["file_path"]
+        except (ValueError, TypeError):
+            pass
+
     # Optional prompt template
     prompt_template_id = request.form.get("prompt_template_id")
     prompt_template = None
@@ -225,7 +237,7 @@ def api_upload_vehicle():
 
     thread = threading.Thread(
         target=_process_upload,
-        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id),
+        args=(job_id, upload_id, saved_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id, person_photo_path),
         daemon=True,
     )
     thread.start()
@@ -272,6 +284,17 @@ def api_vin_generate():
         "cta_text": data.get("cta_text", ""),
     }
 
+    # Person photo option
+    person_option = data.get("person_option", "ai")
+    person_photo_path = None
+    if person_option and person_option != "ai":
+        try:
+            person_record = get_people_photo(int(person_option))
+            if person_record and Path(person_record["file_path"]).exists():
+                person_photo_path = person_record["file_path"]
+        except (ValueError, TypeError):
+            pass
+
     # Optional prompt template
     vin_prompt_template_id = data.get("prompt_template_id")
     prompt_template = None
@@ -280,7 +303,7 @@ def api_vin_generate():
 
     thread = threading.Thread(
         target=_process_vin,
-        args=(job_id, clean_vin, overrides, prompt_template, vin_prompt_template_id),
+        args=(job_id, clean_vin, overrides, prompt_template, vin_prompt_template_id, person_photo_path),
         daemon=True,
     )
     thread.start()
@@ -306,7 +329,7 @@ def api_vin_decode_only():
     return jsonify(specs)
 
 
-def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None, prompt_template_id: str | None = None):
+def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict | None = None, prompt_template_id: str | None = None, person_photo_path: str | None = None):
     """Background worker: decode VIN → generate script → generate video → overlay → done."""
     logger.info("=== VIN pipeline started — job=%s, vin=%s ===", job_id, vin)
 
@@ -372,7 +395,7 @@ def _process_vin(job_id: str, vin: str, overrides: dict, prompt_template: dict |
 
         sora = SoraGenerator()
         clip_path = asyncio.run(
-            sora.generate_clip(veo_prompt, None, upload_id)
+            sora.generate_clip(veo_prompt, person_photo_path, upload_id)
         )
 
         if not clip_path:
@@ -461,6 +484,7 @@ def _process_upload(
     overrides: dict,
     prompt_template: dict | None = None,
     prompt_template_id: str | None = None,
+    person_photo_path: str | None = None,
 ):
     """Background worker: extract → generate video → overlay → done."""
     logger.info(
@@ -542,9 +566,12 @@ def _process_upload(
         else:
             hero_photo = photo_paths[0] if photo_paths else None
 
+        # Use person photo as reference image if provided, otherwise vehicle hero photo
+        reference_photo = person_photo_path if person_photo_path else hero_photo
+
         sora = SoraGenerator()
         clip_path = asyncio.run(
-            sora.generate_clip(veo_prompt, hero_photo, upload_id)
+            sora.generate_clip(veo_prompt, reference_photo, upload_id)
         )
 
         if not clip_path:
@@ -1017,14 +1044,93 @@ def api_media_generate_video():
     if prompt_template_id:
         prompt_template = get_prompt_template(int(prompt_template_id))
 
+    # Person photo option
+    person_option = data.get("person_option", "ai")
+    person_photo_path = None
+    if person_option and person_option != "ai":
+        try:
+            person_record = get_people_photo(int(person_option))
+            if person_record and Path(person_record["file_path"]).exists():
+                person_photo_path = person_record["file_path"]
+        except (ValueError, TypeError):
+            pass
+
     thread = threading.Thread(
         target=_process_upload,
-        args=(job_id, upload_id, all_image_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id),
+        args=(job_id, upload_id, all_image_paths, photo_paths, sticker_path, overrides, prompt_template, prompt_template_id, person_photo_path),
         daemon=True,
     )
     thread.start()
 
     return jsonify({"job_id": job_id, "upload_id": upload_id, "status": "processing"})
+
+
+## --- People Photos API ---
+
+@app.route("/api/people/upload", methods=["POST"])
+def api_people_upload():
+    """
+    Upload a photo of a person to feature in videos.
+
+    Form fields:
+      - photo: single image file (required)
+      - name: person's name or label (required)
+    """
+    photo = request.files.get("photo")
+    if not photo or photo.filename == "":
+        return jsonify({"error": "A photo file is required"}), 400
+
+    name = request.form.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "A name is required"}), 400
+
+    ext = Path(photo.filename).suffix.lower() or ".jpg"
+    safe_name = f"person_{uuid.uuid4().hex[:10]}{ext}"
+    file_path = str(settings.PEOPLE_DIR / safe_name)
+    photo.save(file_path)
+
+    item_id = save_people_photo(
+        name=name,
+        file_path=file_path,
+        file_name=photo.filename or safe_name,
+    )
+
+    # Backup to GCS
+    if is_gcs_enabled():
+        from utils.cloud_storage import upload_branding_asset
+        upload_branding_asset(file_path, blob_prefix="people/")
+
+    return jsonify({
+        "status": "saved",
+        "id": item_id,
+        "name": name,
+        "file_name": photo.filename,
+    })
+
+
+@app.route("/api/people")
+def api_people_list():
+    """List all people photos."""
+    return jsonify(get_all_people_photos())
+
+
+@app.route("/api/people/<int:photo_id>", methods=["DELETE"])
+def api_people_delete(photo_id):
+    """Delete a people photo."""
+    photo = get_people_photo(photo_id)
+    if photo:
+        try:
+            Path(photo["file_path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    if delete_people_photo(photo_id):
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "Photo not found"}), 404
+
+
+@app.route("/people/<path:filename>")
+def serve_people_photo(filename):
+    return send_from_directory(str(settings.PEOPLE_DIR), filename)
 
 
 @app.route("/media/<path:filename>")
