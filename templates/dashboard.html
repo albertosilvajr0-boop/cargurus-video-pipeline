@@ -827,6 +827,27 @@
                     <input type="file" id="mediaFileInput" accept="image/*" multiple>
                 </div>
                 <div class="preview-grid" id="mediaPreviewGrid"></div>
+
+                <!-- Optional: Window Sticker + Carfax for Media Library -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+                    <div>
+                        <div class="upload-zone" id="mediaStickerZone" style="padding:16px 12px">
+                            <h3 style="font-size:0.95rem">Window Sticker (optional)</h3>
+                            <p style="font-size:0.75rem;color:var(--muted)">Helps AI pick real features</p>
+                            <input type="file" id="mediaStickerInput" accept="image/*,.pdf">
+                        </div>
+                        <div id="mediaStickerPreview" class="preview-grid"></div>
+                    </div>
+                    <div>
+                        <div class="upload-zone" id="mediaCarfaxZone" style="padding:16px 12px">
+                            <h3 style="font-size:0.95rem">Carfax Report (optional)</h3>
+                            <p style="font-size:0.75rem;color:var(--muted)">1-Owner &amp; Clean Carfax highlighted in video</p>
+                            <input type="file" id="mediaCarfaxInput" accept="image/*,.pdf">
+                        </div>
+                        <div id="mediaCarfaxPreview" class="preview-grid"></div>
+                    </div>
+                </div>
+
                 <div style="display:flex;gap:12px;align-items:center;margin-top:8px">
                     <button class="btn primary" id="mediaSaveBtn" onclick="saveToMediaLibrary()" disabled>Save to Library</button>
                     <span id="mediaSaveStatus" style="font-size:0.85rem;color:var(--muted)"></span>
@@ -901,6 +922,30 @@
                         <div class="form-field">
                             <label>Address Override</label>
                             <input type="text" id="mediaAddress" placeholder="Uses branding default">
+                        </div>
+                    </div>
+                    <!-- Attach Sticker / Carfax at generate time (if not already in group) -->
+                    <div id="mediaGenDocsSection" style="margin-bottom:12px">
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:8px">
+                            Attach a window sticker and/or Carfax to improve script quality. Gemini will use these to pick real features and highlight 1-Owner/Clean Carfax status.
+                        </p>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                            <div id="mediaGenStickerWrap">
+                                <div class="upload-zone" id="mediaGenStickerZone" style="padding:14px 10px">
+                                    <h3 style="font-size:0.9rem">Window Sticker</h3>
+                                    <p style="font-size:0.7rem;color:var(--muted)">Optional</p>
+                                    <input type="file" id="mediaGenStickerInput" accept="image/*,.pdf">
+                                </div>
+                                <div id="mediaGenStickerPreview" class="preview-grid"></div>
+                            </div>
+                            <div id="mediaGenCarfaxWrap">
+                                <div class="upload-zone" id="mediaGenCarfaxZone" style="padding:14px 10px">
+                                    <h3 style="font-size:0.9rem">Carfax Report</h3>
+                                    <p style="font-size:0.7rem;color:var(--muted)">Optional</p>
+                                    <input type="file" id="mediaGenCarfaxInput" accept="image/*,.pdf">
+                                </div>
+                                <div id="mediaGenCarfaxPreview" class="preview-grid"></div>
+                            </div>
                         </div>
                     </div>
                     <div class="form-field" style="margin-bottom:12px">
@@ -2079,6 +2124,10 @@
 
         // ==================== MY MEDIA LIBRARY ====================
         let mediaFiles = [];
+        let mediaStickerFile = null;
+        let mediaCarfaxFile = null;
+        let mediaGenStickerFile = null;
+        let mediaGenCarfaxFile = null;
         let selectedMediaGroup = null;
         let selectedMediaIds = new Set();
 
@@ -2107,6 +2156,26 @@
                 renderMediaPreviews();
             });
         })();
+
+        // Wire up media sticker and carfax upload zones (library save)
+        setupDropZone('mediaStickerZone', 'mediaStickerInput', (files) => {
+            mediaStickerFile = files[0] || null;
+            renderSinglePreview('mediaStickerPreview', mediaStickerFile, 'Window Sticker');
+        });
+        setupDropZone('mediaCarfaxZone', 'mediaCarfaxInput', (files) => {
+            mediaCarfaxFile = files[0] || null;
+            renderSinglePreview('mediaCarfaxPreview', mediaCarfaxFile, 'Carfax');
+        });
+
+        // Wire up generate-time sticker and carfax upload zones
+        setupDropZone('mediaGenStickerZone', 'mediaGenStickerInput', (files) => {
+            mediaGenStickerFile = files[0] || null;
+            renderSinglePreview('mediaGenStickerPreview', mediaGenStickerFile, 'Window Sticker');
+        });
+        setupDropZone('mediaGenCarfaxZone', 'mediaGenCarfaxInput', (files) => {
+            mediaGenCarfaxFile = files[0] || null;
+            renderSinglePreview('mediaGenCarfaxPreview', mediaGenCarfaxFile, 'Carfax');
+        });
 
         function renderMediaPreviews() {
             const container = document.getElementById('mediaPreviewGrid');
@@ -2141,6 +2210,8 @@
             }
             const label = document.getElementById('mediaLabel').value.trim();
             if (label) formData.append('label', label);
+            if (mediaStickerFile) formData.append('sticker', mediaStickerFile);
+            if (mediaCarfaxFile) formData.append('carfax', mediaCarfaxFile);
 
             try {
                 const res = await fetch('/api/media/upload', { method: 'POST', body: formData });
@@ -2159,7 +2230,11 @@
 
                 // Reset form
                 mediaFiles = [];
+                mediaStickerFile = null;
+                mediaCarfaxFile = null;
                 document.getElementById('mediaPreviewGrid').innerHTML = '';
+                document.getElementById('mediaStickerPreview').innerHTML = '';
+                document.getElementById('mediaCarfaxPreview').innerHTML = '';
                 document.getElementById('mediaLabel').value = '';
                 btn.disabled = true;
 
@@ -2194,6 +2269,8 @@
                                     <button onclick="renameMediaGroup('${escapeHtml(g.media_group)}', '${escapeHtml(displayName).replace(/'/g, "\\'")}')" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:2px;font-size:0.85rem" title="Rename">&#9998;</button>
                                 </div>
                                 <span style="color:var(--muted);font-size:0.8rem">${g.count} file(s) &middot; Added ${date}</span>
+                                ${g.has_sticker ? '<span style="background:var(--green);color:#000;font-size:0.65rem;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:600">Sticker</span>' : ''}
+                                ${g.has_carfax ? '<span style="background:var(--cyan);color:#000;font-size:0.65rem;padding:1px 6px;border-radius:3px;margin-left:4px;font-weight:600">Carfax</span>' : ''}
                             </div>
                             <div style="display:flex;gap:8px">
                                 <button class="btn" style="padding:5px 14px;font-size:0.85rem;background:var(--accent);color:white" onclick="openMediaGroup('${escapeHtml(g.media_group)}')">Use for Video</button>
@@ -2241,6 +2318,10 @@
         async function openMediaGroup(group) {
             selectedMediaGroup = group;
             selectedMediaIds = new Set();
+            mediaGenStickerFile = null;
+            mediaGenCarfaxFile = null;
+            document.getElementById('mediaGenStickerPreview').innerHTML = '';
+            document.getElementById('mediaGenCarfaxPreview').innerHTML = '';
 
             const section = document.getElementById('mediaGenerateSection');
             const grid = document.getElementById('mediaSelectGrid');
@@ -2267,6 +2348,17 @@
 
                 // Select all by default
                 items.forEach(i => selectedMediaIds.add(i.id));
+
+                // Check if group already has sticker/carfax — show/hide upload zones accordingly
+                const hasSticker = items.some(i => i.file_type === 'sticker');
+                const hasCarfax = items.some(i => i.file_type === 'carfax');
+                const stickerWrap = document.getElementById('mediaGenStickerWrap');
+                const carfaxWrap = document.getElementById('mediaGenCarfaxWrap');
+                if (stickerWrap) stickerWrap.style.display = hasSticker ? 'none' : '';
+                if (carfaxWrap) carfaxWrap.style.display = hasCarfax ? 'none' : '';
+                // Hide whole section if both already present
+                const docsSection = document.getElementById('mediaGenDocsSection');
+                if (docsSection) docsSection.style.display = (hasSticker && hasCarfax) ? 'none' : '';
 
                 grid.innerHTML = items.map(item => {
                     const src = `/media/${group}/${item.file_path.split('/').pop()}`;
@@ -2304,6 +2396,10 @@
             document.getElementById('mediaGenerateSection').style.display = 'none';
             selectedMediaGroup = null;
             selectedMediaIds = new Set();
+            mediaGenStickerFile = null;
+            mediaGenCarfaxFile = null;
+            document.getElementById('mediaGenStickerPreview').innerHTML = '';
+            document.getElementById('mediaGenCarfaxPreview').innerHTML = '';
         }
 
         async function generateFromMedia() {
@@ -2318,6 +2414,30 @@
             status.textContent = 'Starting video generation...';
             status.style.color = 'var(--cyan)';
 
+            // If user attached sticker/carfax at generate time, upload them to the group first
+            if ((mediaGenStickerFile || mediaGenCarfaxFile) && selectedMediaGroup) {
+                status.textContent = 'Uploading documents...';
+                const docForm = new FormData();
+                // Need at least one file[] for the upload endpoint — use a dummy approach:
+                // Upload sticker/carfax as dedicated fields with an empty files[] trick
+                // Actually, let's use the dedicated fields in the upload API
+                docForm.append('files[]', new Blob(), '');  // empty placeholder
+                docForm.append('group', selectedMediaGroup);
+                if (mediaGenStickerFile) docForm.append('sticker', mediaGenStickerFile);
+                if (mediaGenCarfaxFile) docForm.append('carfax', mediaGenCarfaxFile);
+                try {
+                    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: docForm });
+                    const uploadData = await uploadRes.json();
+                    if (uploadRes.ok && uploadData.items) {
+                        // Add the newly uploaded doc IDs to selectedMediaIds
+                        uploadData.items.forEach(item => selectedMediaIds.add(item.id));
+                    }
+                } catch (e) {
+                    // Non-fatal — proceed with generation anyway
+                    console.warn('Document upload failed:', e);
+                }
+            }
+
             const body = {
                 media_ids: Array.from(selectedMediaIds),
                 dealer_phone: document.getElementById('mediaPhone').value,
@@ -2329,6 +2449,7 @@
             if (templateId) body.prompt_template_id = templateId;
 
             try {
+                status.textContent = 'Starting video generation...';
                 const res = await fetch('/api/media/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

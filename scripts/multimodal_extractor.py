@@ -52,12 +52,33 @@ From the photos, identify:
 - Notable visual features (wheels, paint finish, body style, roof type)
 - Overall condition impression
 
-## Task 2: Generate Video Script
+## Task 2: Feature Selection Rules
+
+From the window sticker, Carfax, and photos, you MUST pick exactly:
+- **1 safety feature** (e.g., Blind Spot Monitoring, Forward Collision Warning, Adaptive Cruise Control, Lane Keep Assist, 360-degree Camera, Automatic Emergency Braking)
+- **1 technology feature** (e.g., Wireless Apple CarPlay/Android Auto, Head-Up Display, Digital Instrument Cluster, Premium Audio System, Wireless Charging Pad, Panoramic Sunroof with Ambient Lighting)
+
+These must be REAL features that actually exist on the vehicle — pull them from the window sticker options list if available, or identify them from the photos (e.g., a visible 360-camera, heads-up display reflection, branded speaker grille). Do NOT invent features.
+
+## Task 3: 1-Owner & Clean Carfax Rule
+
+If the Carfax report shows:
+- **1 previous owner** (or "1-Owner"), AND/OR
+- **Clean title / no accidents reported** ("Clean Carfax")
+
+Then you MUST include this in the script. Specifically:
+- Add "1-Owner" and/or "Clean Carfax" to the `carfax_highlights` field
+- The `hook` or `text_overlay` MUST mention "1-Owner Clean Carfax" (if both apply) or whichever applies
+- This is a major selling point — never omit it when the data supports it
+
+## Task 4: Generate Video Script
 
 Create a compelling 15-second video script for {dealer_name}'s social media.
 The final video will be: [2s branded intro] + [8s AI-generated cinematic clip] + [5s CTA outro].
 
 You are writing the prompt for the 8-second AI video generation clip.
+
+The script should naturally weave in the selected safety feature and tech feature.
 
 ## Respond with this exact JSON structure:
 
@@ -82,7 +103,14 @@ You are writing the prompt for the 8-second AI video generation clip.
     "carfax": {{
         "owners": 0,
         "accidents": "Clean - no accidents reported",
-        "service_highlights": "N/A - new vehicle"
+        "service_highlights": "N/A - new vehicle",
+        "is_one_owner": false,
+        "is_clean_carfax": true,
+        "carfax_highlights": "Clean Carfax"
+    }},
+    "selected_features": {{
+        "safety_feature": "Forward Collision Warning with Active Braking",
+        "tech_feature": "Wireless Apple CarPlay & Android Auto"
     }},
     "photo_analysis": {{
         "best_exterior_index": 0,
@@ -106,6 +134,9 @@ You are writing the prompt for the 8-second AI video generation clip.
 - Keep text_overlay under 40 characters — it will be burned onto the video
 - Fill in all vehicle fields you can extract; use null for anything not visible
 - If no window sticker or Carfax is provided, extract what you can from the photos alone
+- ALWAYS include exactly 1 safety feature and 1 tech feature in selected_features — these should appear naturally in the veo_prompt scene
+- If the Carfax shows 1-Owner and/or Clean Carfax, the text_overlay or hook MUST mention it (e.g. "1-Owner Clean Carfax | $52,990")
+- The carfax_highlights field should be a short string like "1-Owner Clean Carfax" or "Clean Carfax" or null if no carfax provided
 
 Respond ONLY with the JSON object. No markdown code fences.
 """
