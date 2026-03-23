@@ -2892,7 +2892,7 @@
                     if (v.status === 'video_complete') {
                         html += `<div id="reoverlayForm-${v.id}" style="display:none;margin-top:16px;padding:16px;background:var(--bg);border-radius:12px;border:1px solid var(--accent)">`;
                         html += `<h3 style="margin-bottom:4px">Visual Overlay Editor</h3>`;
-                        html += `<p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Drag text overlays on the video preview. Text burns directly onto the video — <strong style="color:var(--green)">$0 API cost</strong></p>`;
+                        html += `<p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Drag text &amp; image overlays on the video preview. Burns directly onto the video — <strong style="color:var(--green)">$0 API cost</strong></p>`;
 
                         // Canvas area with video frame preview
                         html += `<div style="position:relative;margin-bottom:12px">`;
@@ -2902,42 +2902,48 @@
                         // Toolbar: Add text + controls for selected item
                         html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">`;
                         html += `<button class="btn" onclick="addOverlayText(${v.id})" style="background:var(--accent);font-size:0.85rem">+ Add Text</button>`;
+                        html += `<button class="btn" onclick="triggerImageUpload(${v.id})" style="background:var(--green);font-size:0.85rem">+ Add Image</button>`;
+                        html += `<input type="file" id="ovImageInput-${v.id}" accept="image/*" style="display:none" onchange="handleImageUpload(${v.id}, this)">`;
                         html += `<button class="btn" id="removeOverlayBtn-${v.id}" onclick="removeSelectedOverlay(${v.id})" style="background:var(--red);font-size:0.85rem;display:none">Remove Selected</button>`;
-                        html += `<span id="overlayHint-${v.id}" style="color:var(--muted);font-size:0.75rem">Click "Add Text" to add an overlay, then drag to position</span>`;
+                        html += `<span id="overlayHint-${v.id}" style="color:var(--muted);font-size:0.75rem">Add text or images, then drag to position</span>`;
                         html += `</div>`;
 
-                        // Properties panel for selected overlay
+                        // Properties panel for selected TEXT overlay
                         html += `<div id="overlayProps-${v.id}" style="display:none;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin-bottom:12px">`;
-                        html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:10px;color:var(--cyan)">Selected Overlay Properties</div>`;
+                        html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:10px;color:var(--cyan)">Text Overlay Properties</div>`;
                         html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">`;
-                        // Text content
                         html += `<div class="form-field" style="grid-column:1/-1"><label style="font-size:0.75rem">Text</label><input type="text" id="ovText-${v.id}" oninput="updateOverlayProp(${v.id},'text',this.value)" placeholder="Enter text..."></div>`;
-                        // Font family
                         html += `<div class="form-field"><label style="font-size:0.75rem">Font Family</label><select id="ovFont-${v.id}" onchange="updateOverlayProp(${v.id},'fontFamily',this.value)">`;
                         html += `<option value="sans-serif">Sans-Serif (DejaVu)</option>`;
                         html += `<option value="serif">Serif (DejaVu)</option>`;
                         html += `<option value="monospace">Monospace</option>`;
                         html += `<option value="liberation">Liberation Sans</option>`;
                         html += `</select></div>`;
-                        // Font size
                         html += `<div class="form-field"><label style="font-size:0.75rem">Font Size</label><div style="display:flex;gap:6px;align-items:center"><input type="range" id="ovSize-${v.id}" min="12" max="120" value="36" oninput="updateOverlayProp(${v.id},'fontSize',this.value);document.getElementById('ovSizeVal-${v.id}').textContent=this.value+'px'" style="flex:1"><span id="ovSizeVal-${v.id}" style="font-size:0.75rem;min-width:40px">36px</span></div></div>`;
-                        // Font color
                         html += `<div class="form-field"><label style="font-size:0.75rem">Font Color</label><div style="display:flex;gap:6px;align-items:center"><input type="color" id="ovColor-${v.id}" value="#ffffff" onchange="updateOverlayProp(${v.id},'fontColor',this.value)" style="width:40px;height:32px;border:none;background:none;cursor:pointer"><input type="text" id="ovColorHex-${v.id}" value="#ffffff" onchange="document.getElementById('ovColor-${v.id}').value=this.value;updateOverlayProp(${v.id},'fontColor',this.value)" style="flex:1;font-size:0.8rem"></div></div>`;
-                        // Bold toggle
                         html += `<div class="form-field"><label style="font-size:0.75rem">Style</label><div style="display:flex;gap:6px"><button id="ovBold-${v.id}" onclick="toggleOverlayBold(${v.id})" class="btn" style="font-weight:bold;font-size:0.85rem;min-width:36px;padding:4px 10px;background:var(--surface2)">B</button><button id="ovShadow-${v.id}" onclick="toggleOverlayShadow(${v.id})" class="btn" style="font-size:0.85rem;padding:4px 10px;background:var(--surface2)" title="Toggle shadow">S</button></div></div>`;
-                        // Background color
                         html += `<div class="form-field"><label style="font-size:0.75rem">Background</label><div style="display:flex;gap:6px;align-items:center"><input type="color" id="ovBgColor-${v.id}" value="#000000" onchange="updateOverlayProp(${v.id},'backgroundColor',this.value)" style="width:40px;height:32px;border:none;background:none;cursor:pointer"><input type="range" id="ovBgOpacity-${v.id}" min="0" max="100" value="0" oninput="updateOverlayProp(${v.id},'backgroundOpacity',this.value/100)" style="flex:1" title="Background opacity"></div></div>`;
-                        // Shadow color
                         html += `<div class="form-field"><label style="font-size:0.75rem">Shadow Color</label><input type="color" id="ovShadowColor-${v.id}" value="#000000" onchange="updateOverlayProp(${v.id},'shadowColor',this.value)" style="width:40px;height:32px;border:none;background:none;cursor:pointer"></div>`;
-                        html += `</div>`;  // end grid
-                        // Quick color presets
+                        html += `</div>`;
                         html += `<div style="margin-top:8px;display:flex;gap:6px;align-items:center"><span style="font-size:0.7rem;color:var(--muted)">Quick colors:</span>`;
                         const presetColors = ['#ffffff','#22c55e','#3b82f6','#eab308','#ef4444','#06b6d4','#a855f7','#f97316'];
                         for (const c of presetColors) {
                             html += `<div onclick="document.getElementById('ovColor-${v.id}').value='${c}';document.getElementById('ovColorHex-${v.id}').value='${c}';updateOverlayProp(${v.id},'fontColor','${c}')" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;border:2px solid var(--border);flex-shrink:0" title="${c}"></div>`;
                         }
                         html += `</div>`;
-                        html += `</div>`;  // end overlayProps
+                        html += `</div>`;
+
+                        // Properties panel for selected IMAGE overlay
+                        html += `<div id="overlayImgProps-${v.id}" style="display:none;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin-bottom:12px">`;
+                        html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:10px;color:var(--green)">Image Overlay Properties</div>`;
+                        html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><img id="ovImgPreview-${v.id}" src="" style="width:48px;height:48px;object-fit:contain;border-radius:4px;background:var(--surface2)"><span id="ovImgName-${v.id}" style="font-size:0.8rem;color:var(--muted)"></span></div>`;
+                        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">`;
+                        html += `<div class="form-field"><label style="font-size:0.75rem">Width (px)</label><div style="display:flex;gap:6px;align-items:center"><input type="range" id="ovImgW-${v.id}" min="20" max="600" value="150" oninput="updateOverlayProp(${v.id},'imgWidth',this.value);document.getElementById('ovImgWVal-${v.id}').textContent=this.value+'px'" style="flex:1"><span id="ovImgWVal-${v.id}" style="font-size:0.75rem;min-width:40px">150px</span></div></div>`;
+                        html += `<div class="form-field"><label style="font-size:0.75rem">Height (px)</label><div style="display:flex;gap:6px;align-items:center"><input type="range" id="ovImgH-${v.id}" min="20" max="600" value="150" oninput="updateOverlayProp(${v.id},'imgHeight',this.value);document.getElementById('ovImgHVal-${v.id}').textContent=this.value+'px'" style="flex:1"><span id="ovImgHVal-${v.id}" style="font-size:0.75rem;min-width:40px">150px</span></div></div>`;
+                        html += `<div class="form-field" style="grid-column:1/-1"><label style="font-size:0.75rem">Opacity</label><div style="display:flex;gap:6px;align-items:center"><input type="range" id="ovImgOpacity-${v.id}" min="5" max="100" value="100" oninput="updateOverlayProp(${v.id},'opacity',this.value/100);document.getElementById('ovImgOpacityVal-${v.id}').textContent=this.value+'%'" style="flex:1"><span id="ovImgOpacityVal-${v.id}" style="font-size:0.75rem;min-width:40px">100%</span></div></div>`;
+                        html += `<div class="form-field"><label style="font-size:0.75rem"><input type="checkbox" id="ovImgLock-${v.id}" checked onchange="updateOverlayProp(${v.id},'lockAspect',this.checked)" style="margin-right:4px">Lock aspect ratio</label></div>`;
+                        html += `</div>`;
+                        html += `</div>`;
 
                         // Apply button + status
                         html += `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
@@ -3035,6 +3041,7 @@
 
             const idx = state.overlays.length;
             const ov = {
+                type: 'text',
                 text: 'New Text',
                 x: 0.5,
                 y: 0.5,
@@ -3054,36 +3061,108 @@
             selectOverlay(vehicleId, idx);
         }
 
+        function triggerImageUpload(vehicleId) {
+            document.getElementById(`ovImageInput-${vehicleId}`).click();
+        }
+
+        async function handleImageUpload(vehicleId, input) {
+            const state = _overlayState[vehicleId];
+            if (!state || !input.files || !input.files[0]) return;
+
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('image', file);
+
+            // Upload to server
+            const hint = document.getElementById(`overlayHint-${vehicleId}`);
+            if (hint) { hint.style.display = 'inline'; hint.textContent = 'Uploading image...'; }
+
+            try {
+                const res = await fetch('/api/overlay-image', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) {
+                    if (hint) { hint.textContent = `Upload failed: ${data.error}`; hint.style.color = 'var(--red)'; }
+                    return;
+                }
+
+                // Get natural image dimensions for aspect ratio
+                const img = new window.Image();
+                img.onload = () => {
+                    const aspectRatio = img.naturalWidth / img.naturalHeight;
+                    const defaultW = Math.min(150, state.videoDims.w * 0.3);
+                    const defaultH = Math.round(defaultW / aspectRatio);
+
+                    const idx = state.overlays.length;
+                    const ov = {
+                        type: 'image',
+                        imagePath: data.path,
+                        imageUrl: data.url,
+                        imageName: data.filename,
+                        x: 0.3,
+                        y: 0.3,
+                        imgWidth: Math.round(defaultW),
+                        imgHeight: defaultH,
+                        opacity: 1.0,
+                        aspectRatio: aspectRatio,
+                        lockAspect: true,
+                    };
+                    state.overlays.push(ov);
+                    renderOverlayElements(vehicleId);
+                    selectOverlay(vehicleId, idx);
+                    if (hint) hint.style.display = 'none';
+                };
+                img.src = data.url;
+            } catch (e) {
+                if (hint) { hint.textContent = `Upload error: ${e.message}`; hint.style.color = 'var(--red)'; }
+            }
+            // Reset input so same file can be re-selected
+            input.value = '';
+        }
+
         function renderOverlayElements(vehicleId) {
             const state = _overlayState[vehicleId];
             const canvas = document.getElementById(`overlayCanvas-${vehicleId}`);
             if (!state || !canvas) return;
 
             // Remove existing overlay elements
-            canvas.querySelectorAll('.ov-text-el').forEach(el => el.remove());
+            canvas.querySelectorAll('.ov-el').forEach(el => el.remove());
 
             state.overlays.forEach((ov, idx) => {
                 const el = document.createElement('div');
-                el.className = 'ov-text-el';
+                el.className = 'ov-el';
                 el.dataset.idx = idx;
                 el.style.cssText = `
                     position:absolute;
                     cursor:move;
                     user-select:none;
-                    white-space:nowrap;
-                    padding:2px 6px;
                     border:2px solid transparent;
                     border-radius:3px;
                     transition:border-color 0.15s;
                     z-index:${10 + idx};
                 `;
-                applyOverlayStyle(el, ov, state);
-                // Position
+
                 el.style.left = (ov.x * state.canvasW) + 'px';
                 el.style.top = (ov.y * state.canvasH) + 'px';
-                el.textContent = ov.text;
 
-                // Selection
+                if (ov.type === 'image') {
+                    // Image overlay element
+                    const scaledW = Math.round(ov.imgWidth * state.canvasScale);
+                    const scaledH = Math.round(ov.imgHeight * state.canvasScale);
+                    const img = document.createElement('img');
+                    img.src = ov.imageUrl;
+                    img.style.cssText = `width:${scaledW}px;height:${scaledH}px;object-fit:contain;pointer-events:none;display:block;opacity:${ov.opacity}`;
+                    img.draggable = false;
+                    el.appendChild(img);
+                    el.style.padding = '0';
+                } else {
+                    // Text overlay element
+                    el.style.whiteSpace = 'nowrap';
+                    el.style.padding = '2px 6px';
+                    applyOverlayStyle(el, ov, state);
+                    el.textContent = ov.text;
+                }
+
+                // Selection + drag
                 el.addEventListener('mousedown', (e) => {
                     e.stopPropagation();
                     selectOverlay(vehicleId, idx);
@@ -3091,7 +3170,7 @@
                 });
 
                 if (idx === state.selectedIdx) {
-                    el.style.borderColor = 'var(--cyan)';
+                    el.style.borderColor = ov.type === 'image' ? 'var(--green)' : 'var(--cyan)';
                 }
 
                 canvas.appendChild(el);
@@ -3125,41 +3204,63 @@
             if (!state) return;
             state.selectedIdx = idx;
 
-            const propsPanel = document.getElementById(`overlayProps-${vehicleId}`);
+            const textProps = document.getElementById(`overlayProps-${vehicleId}`);
+            const imgProps = document.getElementById(`overlayImgProps-${vehicleId}`);
             const removeBtn = document.getElementById(`removeOverlayBtn-${vehicleId}`);
             const hint = document.getElementById(`overlayHint-${vehicleId}`);
 
             if (idx < 0 || idx >= state.overlays.length) {
-                propsPanel.style.display = 'none';
+                textProps.style.display = 'none';
+                imgProps.style.display = 'none';
                 removeBtn.style.display = 'none';
                 hint.style.display = 'inline';
-                // Deselect visually
+                hint.textContent = 'Add text or images, then drag to position';
+                hint.style.color = 'var(--muted)';
                 const canvas = document.getElementById(`overlayCanvas-${vehicleId}`);
-                canvas.querySelectorAll('.ov-text-el').forEach(el => el.style.borderColor = 'transparent');
+                canvas.querySelectorAll('.ov-el').forEach(el => el.style.borderColor = 'transparent');
                 return;
             }
 
             hint.style.display = 'none';
-            propsPanel.style.display = 'block';
             removeBtn.style.display = 'inline-block';
 
             const ov = state.overlays[idx];
-            document.getElementById(`ovText-${vehicleId}`).value = ov.text;
-            document.getElementById(`ovFont-${vehicleId}`).value = ov.fontFamily;
-            document.getElementById(`ovSize-${vehicleId}`).value = ov.fontSize;
-            document.getElementById(`ovSizeVal-${vehicleId}`).textContent = ov.fontSize + 'px';
-            document.getElementById(`ovColor-${vehicleId}`).value = ov.fontColor;
-            document.getElementById(`ovColorHex-${vehicleId}`).value = ov.fontColor;
-            document.getElementById(`ovBold-${vehicleId}`).style.background = ov.bold ? 'var(--accent)' : 'var(--surface2)';
-            document.getElementById(`ovShadow-${vehicleId}`).style.background = ov.hasShadow ? 'var(--accent)' : 'var(--surface2)';
-            document.getElementById(`ovBgColor-${vehicleId}`).value = ov.backgroundColor;
-            document.getElementById(`ovBgOpacity-${vehicleId}`).value = Math.round(ov.backgroundOpacity * 100);
-            document.getElementById(`ovShadowColor-${vehicleId}`).value = ov.shadowColor;
+
+            if (ov.type === 'image') {
+                // Show image props, hide text props
+                textProps.style.display = 'none';
+                imgProps.style.display = 'block';
+                document.getElementById(`ovImgPreview-${vehicleId}`).src = ov.imageUrl;
+                document.getElementById(`ovImgName-${vehicleId}`).textContent = ov.imageName || 'Image';
+                document.getElementById(`ovImgW-${vehicleId}`).value = ov.imgWidth;
+                document.getElementById(`ovImgWVal-${vehicleId}`).textContent = ov.imgWidth + 'px';
+                document.getElementById(`ovImgH-${vehicleId}`).value = ov.imgHeight;
+                document.getElementById(`ovImgHVal-${vehicleId}`).textContent = ov.imgHeight + 'px';
+                document.getElementById(`ovImgOpacity-${vehicleId}`).value = Math.round(ov.opacity * 100);
+                document.getElementById(`ovImgOpacityVal-${vehicleId}`).textContent = Math.round(ov.opacity * 100) + '%';
+                document.getElementById(`ovImgLock-${vehicleId}`).checked = ov.lockAspect;
+            } else {
+                // Show text props, hide image props
+                textProps.style.display = 'block';
+                imgProps.style.display = 'none';
+                document.getElementById(`ovText-${vehicleId}`).value = ov.text;
+                document.getElementById(`ovFont-${vehicleId}`).value = ov.fontFamily;
+                document.getElementById(`ovSize-${vehicleId}`).value = ov.fontSize;
+                document.getElementById(`ovSizeVal-${vehicleId}`).textContent = ov.fontSize + 'px';
+                document.getElementById(`ovColor-${vehicleId}`).value = ov.fontColor;
+                document.getElementById(`ovColorHex-${vehicleId}`).value = ov.fontColor;
+                document.getElementById(`ovBold-${vehicleId}`).style.background = ov.bold ? 'var(--accent)' : 'var(--surface2)';
+                document.getElementById(`ovShadow-${vehicleId}`).style.background = ov.hasShadow ? 'var(--accent)' : 'var(--surface2)';
+                document.getElementById(`ovBgColor-${vehicleId}`).value = ov.backgroundColor;
+                document.getElementById(`ovBgOpacity-${vehicleId}`).value = Math.round(ov.backgroundOpacity * 100);
+                document.getElementById(`ovShadowColor-${vehicleId}`).value = ov.shadowColor;
+            }
 
             // Highlight selected
             const canvas = document.getElementById(`overlayCanvas-${vehicleId}`);
-            canvas.querySelectorAll('.ov-text-el').forEach(el => {
-                el.style.borderColor = parseInt(el.dataset.idx) === idx ? 'var(--cyan)' : 'transparent';
+            canvas.querySelectorAll('.ov-el').forEach(el => {
+                const isSelected = parseInt(el.dataset.idx) === idx;
+                el.style.borderColor = isSelected ? (ov.type === 'image' ? 'var(--green)' : 'var(--cyan)') : 'transparent';
             });
         }
 
@@ -3170,9 +3271,26 @@
 
             if (prop === 'fontSize') ov.fontSize = parseInt(value);
             else if (prop === 'backgroundOpacity') ov.backgroundOpacity = parseFloat(value);
-            else ov[prop] = value;
+            else if (prop === 'opacity') ov.opacity = parseFloat(value);
+            else if (prop === 'imgWidth') {
+                ov.imgWidth = parseInt(value);
+                if (ov.lockAspect && ov.aspectRatio) {
+                    ov.imgHeight = Math.round(ov.imgWidth / ov.aspectRatio);
+                    document.getElementById(`ovImgH-${vehicleId}`).value = ov.imgHeight;
+                    document.getElementById(`ovImgHVal-${vehicleId}`).textContent = ov.imgHeight + 'px';
+                }
+            } else if (prop === 'imgHeight') {
+                ov.imgHeight = parseInt(value);
+                if (ov.lockAspect && ov.aspectRatio) {
+                    ov.imgWidth = Math.round(ov.imgHeight * ov.aspectRatio);
+                    document.getElementById(`ovImgW-${vehicleId}`).value = ov.imgWidth;
+                    document.getElementById(`ovImgWVal-${vehicleId}`).textContent = ov.imgWidth + 'px';
+                }
+            } else if (prop === 'lockAspect') {
+                ov.lockAspect = value;
+            } else ov[prop] = value;
 
-            // Sync hex display
+            // Sync hex display for text
             if (prop === 'fontColor') {
                 document.getElementById(`ovColorHex-${vehicleId}`).value = value;
                 document.getElementById(`ovColor-${vehicleId}`).value = value;
@@ -3211,7 +3329,7 @@
         function startDrag(e, vehicleId, idx) {
             const state = _overlayState[vehicleId];
             const canvas = document.getElementById(`overlayCanvas-${vehicleId}`);
-            const el = canvas.querySelector(`.ov-text-el[data-idx="${idx}"]`);
+            const el = canvas.querySelector(`.ov-el[data-idx="${idx}"]`);
             if (!el) return;
 
             const rect = canvas.getBoundingClientRect();
@@ -3253,7 +3371,7 @@
             const btn = document.getElementById(`reoverlayBtn-${vehicleId}`);
 
             if (!state || state.overlays.length === 0) {
-                statusEl.textContent = 'Add at least one text overlay first';
+                statusEl.textContent = 'Add at least one overlay first';
                 statusEl.style.color = 'var(--yellow)';
                 return;
             }
@@ -3268,21 +3386,35 @@
             btn.disabled = true;
             btn.style.opacity = '0.5';
 
-            // Build overlay definitions with actual pixel positions for FFmpeg
-            const overlays = state.overlays.map(ov => ({
-                text: ov.text,
-                x: ov.x,
-                y: ov.y,
-                fontSize: ov.fontSize,
-                fontColor: ov.fontColor,
-                fontFamily: ov.fontFamily,
-                bold: ov.bold,
-                backgroundColor: ov.backgroundOpacity > 0 ? ov.backgroundColor : '',
-                backgroundOpacity: ov.backgroundOpacity,
-                shadowColor: ov.hasShadow ? ov.shadowColor : '#00000000',
-                shadowX: ov.hasShadow ? ov.shadowX : 0,
-                shadowY: ov.hasShadow ? ov.shadowY : 0,
-            }));
+            // Build overlay definitions for FFmpeg
+            const overlays = state.overlays.map(ov => {
+                if (ov.type === 'image') {
+                    return {
+                        type: 'image',
+                        imagePath: ov.imagePath,
+                        x: ov.x,
+                        y: ov.y,
+                        width: ov.imgWidth,
+                        height: ov.imgHeight,
+                        opacity: ov.opacity,
+                    };
+                }
+                return {
+                    type: 'text',
+                    text: ov.text,
+                    x: ov.x,
+                    y: ov.y,
+                    fontSize: ov.fontSize,
+                    fontColor: ov.fontColor,
+                    fontFamily: ov.fontFamily,
+                    bold: ov.bold,
+                    backgroundColor: ov.backgroundOpacity > 0 ? ov.backgroundColor : '',
+                    backgroundOpacity: ov.backgroundOpacity,
+                    shadowColor: ov.hasShadow ? ov.shadowColor : '#00000000',
+                    shadowX: ov.hasShadow ? ov.shadowX : 0,
+                    shadowY: ov.hasShadow ? ov.shadowY : 0,
+                };
+            });
 
             const body = {
                 vehicle_id: vehicleId,
@@ -3329,7 +3461,7 @@
                         if (job.status === 'complete') {
                             clearInterval(poll);
                             progressBar.style.width = '100%';
-                            statusEl.innerHTML = '<span style="color:var(--green)">Done! Overlays burned onto video ($0 cost)</span>';
+                            statusEl.innerHTML = '<span style="color:var(--green)">Done! Text &amp; image overlays burned onto video ($0 cost)</span>';
                             stepEl.textContent = `Completed in ${elapsed}s`;
                             btn.disabled = false;
                             btn.style.opacity = '1';
