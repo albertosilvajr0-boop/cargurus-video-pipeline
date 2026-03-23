@@ -1364,27 +1364,89 @@ def api_trim_video():
     })
 
 
+@app.route("/api/vehicle/<int:vehicle_id>/frame")
+def api_vehicle_frame(vehicle_id):
+    """Extract a single frame from the vehicle's video for overlay editor preview."""
+    from utils.database import get_connection
+    conn = get_connection()
+    cursor = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "Vehicle not found"}), 404
+
+    cargurus_id = row["cargurus_id"]
+    time_sec = float(request.args.get("t", 1.0))
+
+    # Find the video file (prefer _clip.mp4 for raw frame, fall back to _final.mp4)
+    clip_path = settings.VIDEOS_DIR / f"{cargurus_id}_clip.mp4"
+    final_path = settings.VIDEOS_DIR / f"{cargurus_id}_final.mp4"
+    video_path = None
+    if clip_path.exists():
+        video_path = str(clip_path)
+    elif final_path.exists():
+        video_path = str(final_path)
+    else:
+        return jsonify({"error": "No video file found"}), 404
+
+    overlay = VideoOverlayPipeline()
+    frame_path = overlay.extract_frame(video_path, time_sec)
+    if not frame_path:
+        return jsonify({"error": "Frame extraction failed"}), 500
+
+    return send_from_directory(
+        str(Path(frame_path).parent),
+        Path(frame_path).name,
+        mimetype="image/jpeg",
+    )
+
+
+@app.route("/api/video-dimensions/<int:vehicle_id>")
+def api_video_dimensions(vehicle_id):
+    """Return the video dimensions for the overlay editor."""
+    overlay = VideoOverlayPipeline()
+    return jsonify({
+        "width": overlay.width,
+        "height": overlay.height,
+    })
+
+
 @app.route("/api/reoverlay", methods=["POST"])
 def api_reoverlay():
     """
-    Re-apply overlays to an existing AI clip — $0 API cost.
+    Apply text overlays directly on the video — $0 API cost.
 
-    Uses the saved _clip.mp4 file and re-generates intro/outro with
-    updated branding, price, CTA, etc. No video generation API calls.
+    Burns text overlays onto the video using FFmpeg drawtext filters.
+    Overlays appear ON TOP of the video, not as separate intro/outro segments.
 
     JSON body:
       - vehicle_id: int (required) — database vehicle ID
-      - price: updated price (optional, keeps original if omitted)
-      - dealer_phone: override phone (optional)
-      - dealer_address: override address (optional)
-      - cta_text: custom CTA text (optional)
-      - dealer_name: override dealer name for outro (optional)
+      - overlays: list of overlay objects (required), each with:
+          - text: str — text to display
+          - x: float — x position as fraction (0.0-1.0)
+          - y: float — y position as fraction (0.0-1.0)
+          - fontSize: int — font size in pixels
+          - fontColor: str — hex color
+          - fontFamily: str — font family key
+          - bold: bool
+          - backgroundColor: str — hex bg color (optional)
+          - backgroundOpacity: float (0-1)
+          - shadowColor: str — hex shadow color
+          - shadowX: int
+          - shadowY: int
+          - startTime: float (optional)
+          - endTime: float (optional)
     """
     data = request.get_json()
     if not data or not data.get("vehicle_id"):
         return jsonify({"error": "vehicle_id is required"}), 400
 
     vehicle_id = int(data["vehicle_id"])
+    overlays = data.get("overlays", [])
+
+    if not overlays:
+        return jsonify({"error": "At least one overlay is required"}), 400
 
     # Load vehicle from database
     from utils.database import get_connection
@@ -1397,39 +1459,15 @@ def api_reoverlay():
         return jsonify({"error": "Vehicle not found"}), 404
 
     cargurus_id = row["cargurus_id"]
-
-    # Build vehicle name from DB
     parts = [str(row["year"] or ""), row["make"] or "", row["model"] or "", row["trim"] or ""]
     vehicle_name = " ".join(p for p in parts if p).strip() or cargurus_id
 
-    # Resolve price — use override if provided, else keep original
-    price = data.get("price")
-    if price is None and row["price"]:
-        price = row["price"]
-
-    # Build specs for text-only intro
-    vehicle_specs = {
-        "engine": row["engine"] or "",
-        "drivetrain": row["drivetrain"] or "",
-        "body_style": "",
-    }
-
-    # Find hero photo if available
-    hero_photo = None
-    if row["photo_paths"]:
-        try:
-            photo_list = json.loads(row["photo_paths"])
-            if photo_list and Path(photo_list[0]).exists():
-                hero_photo = photo_list[0]
-        except (json.JSONDecodeError, IndexError):
-            pass
-
-    # Run re-overlay in background
+    # Run overlay in background
     job_id = f"reoverlay_{cargurus_id}_{uuid.uuid4().hex[:6]}"
     with _jobs_lock:
         _active_jobs[job_id] = {
             "status": "compositing",
-            "progress": f"Re-applying overlays for {vehicle_name} ($0 API cost)...",
+            "progress": f"Applying text overlays for {vehicle_name} ($0 API cost)...",
             "vehicle_id": vehicle_id,
             "vehicle_name": vehicle_name,
             "started_at": datetime.now().isoformat(),
@@ -1437,7 +1475,6 @@ def api_reoverlay():
 
     def _run_reoverlay():
         def _update_progress(percent, message):
-            """Callback to update job progress from overlay pipeline."""
             logger.info("Re-overlay progress [%s]: %d%% — %s", job_id, percent, message)
             with _jobs_lock:
                 _active_jobs[job_id].update(
@@ -1446,41 +1483,48 @@ def api_reoverlay():
                 )
 
         try:
-            # Ensure the _clip.mp4 exists locally — download from GCS if needed
+            # Find the source video — prefer _clip.mp4 (raw AI clip)
             clip_local = settings.VIDEOS_DIR / f"{cargurus_id}_clip.mp4"
+            final_local = settings.VIDEOS_DIR / f"{cargurus_id}_final.mp4"
             _update_progress(5, "Checking for local clip file...")
+
             if not clip_local.exists() and is_gcs_enabled():
                 logger.info("Local clip missing, downloading from GCS: %s", clip_local.name)
                 _update_progress(5, "Downloading clip from cloud storage...")
                 gcs_download_video(f"videos/{clip_local.name}", str(clip_local))
 
-            if not clip_local.exists():
-                logger.error("Clip file not found locally or in GCS: %s", clip_local)
-                _update_progress(0, f"Clip file not found: {clip_local.name}")
+            # Use clip if available, otherwise use existing final
+            source_video = None
+            if clip_local.exists():
+                source_video = str(clip_local)
+            elif final_local.exists():
+                source_video = str(final_local)
+
+            if not source_video:
+                logger.error("No video file found for %s", cargurus_id)
+                _update_progress(0, f"No video file found for {cargurus_id}")
                 with _jobs_lock:
                     _active_jobs[job_id].update(status="error")
                 return
 
-            overlay = VideoOverlayPipeline()
-            final_path = overlay.recompose_overlay(
-                vehicle_id_or_clip=cargurus_id,
-                vehicle_name=vehicle_name,
-                price=price,
-                hero_photo_path=hero_photo,
-                dealer_phone=data.get("dealer_phone") or "",
-                dealer_address=data.get("dealer_address") or "",
-                dealer_logo_path=settings.DEALER_LOGO_PATH,
-                cta_text=data.get("cta_text") or "",
-                vehicle_specs=vehicle_specs,
+            _update_progress(10, "Starting overlay pipeline...")
+
+            overlay_pipeline = VideoOverlayPipeline()
+            output_path = str(settings.VIDEOS_DIR / f"{cargurus_id}_final.mp4")
+
+            final_path = overlay_pipeline.apply_text_overlays(
+                video_path=source_video,
+                overlays=overlays,
+                output_path=output_path,
                 progress_callback=_update_progress,
             )
 
             if not final_path:
-                logger.error("Re-overlay returned no output for job %s", job_id)
+                logger.error("Text overlay returned no output for job %s", job_id)
                 with _jobs_lock:
                     _active_jobs[job_id].update(
                         status="error",
-                        progress="Re-overlay failed — make sure the _clip.mp4 file still exists",
+                        progress="Overlay failed — check server logs for FFmpeg errors",
                         percent=0,
                     )
                 return
@@ -1490,7 +1534,6 @@ def api_reoverlay():
             if is_gcs_enabled():
                 video_url = gcs_upload_video(final_path)
 
-            # Update vehicle record (no cost change — this was free)
             status_kwargs = dict(
                 video_path=final_path,
                 video_generated_at=datetime.now().isoformat(),
@@ -1499,11 +1542,10 @@ def api_reoverlay():
                 status_kwargs["video_url"] = video_url
             update_vehicle_status(vehicle_id, "video_complete", **status_kwargs)
 
-            _update_progress(95, "Uploading to cloud storage..." if is_gcs_enabled() else "Finalizing...")
             with _jobs_lock:
                 _active_jobs[job_id].update(
                     status="complete",
-                    progress="Overlays updated — $0 API cost!",
+                    progress="Text overlays applied — $0 API cost!",
                     percent=100,
                     video_path=final_path,
                     video_filename=Path(final_path).name,
@@ -1522,7 +1564,7 @@ def api_reoverlay():
         "job_id": job_id,
         "vehicle_id": vehicle_id,
         "status": "processing",
-        "message": "Re-applying overlays using local FFmpeg — $0 API cost",
+        "message": "Applying text overlays using local FFmpeg — $0 API cost",
     })
 
 
