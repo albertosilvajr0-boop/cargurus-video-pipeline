@@ -1402,6 +1402,39 @@ def api_vehicle_frame(vehicle_id):
     )
 
 
+@app.route("/api/overlay-image", methods=["POST"])
+def api_upload_overlay_image():
+    """Upload an image to use as an overlay on a video.
+
+    Accepts multipart/form-data with an 'image' file field.
+    Returns the server-side path and a URL to preview the image.
+    """
+    if "image" not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+
+    file = request.files["image"]
+    if not file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    # Validate file type
+    allowed_ext = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed_ext:
+        return jsonify({"error": f"Unsupported image type: {ext}"}), 400
+
+    # Save with unique name
+    safe_name = f"overlay_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = settings.UPLOADS_DIR / safe_name
+    file.save(str(save_path))
+
+    logger.info("Overlay image uploaded: %s -> %s", file.filename, save_path)
+    return jsonify({
+        "path": str(save_path),
+        "url": f"/uploads/{safe_name}",
+        "filename": file.filename,
+    })
+
+
 @app.route("/api/video-dimensions/<int:vehicle_id>")
 def api_video_dimensions(vehicle_id):
     """Return the video dimensions for the overlay editor."""
@@ -1415,28 +1448,25 @@ def api_video_dimensions(vehicle_id):
 @app.route("/api/reoverlay", methods=["POST"])
 def api_reoverlay():
     """
-    Apply text overlays directly on the video — $0 API cost.
+    Apply text and image overlays directly on the video — $0 API cost.
 
-    Burns text overlays onto the video using FFmpeg drawtext filters.
+    Burns overlays onto the video using FFmpeg drawtext and overlay filters.
     Overlays appear ON TOP of the video, not as separate intro/outro segments.
 
     JSON body:
       - vehicle_id: int (required) — database vehicle ID
       - overlays: list of overlay objects (required), each with:
-          - text: str — text to display
-          - x: float — x position as fraction (0.0-1.0)
-          - y: float — y position as fraction (0.0-1.0)
-          - fontSize: int — font size in pixels
-          - fontColor: str — hex color
-          - fontFamily: str — font family key
-          - bold: bool
-          - backgroundColor: str — hex bg color (optional)
-          - backgroundOpacity: float (0-1)
-          - shadowColor: str — hex shadow color
-          - shadowX: int
-          - shadowY: int
-          - startTime: float (optional)
-          - endTime: float (optional)
+          - type: "text" or "image"
+        For text:
+          - text, x, y, fontSize, fontColor, fontFamily, bold
+          - backgroundColor, backgroundOpacity, shadowColor, shadowX, shadowY
+          - startTime, endTime (optional)
+        For image:
+          - imagePath: server path from /api/overlay-image upload
+          - x, y: position as fraction (0.0-1.0)
+          - width, height: display size in video pixels
+          - opacity: 0.0-1.0
+          - startTime, endTime (optional)
     """
     data = request.get_json()
     if not data or not data.get("vehicle_id"):
@@ -1512,7 +1542,7 @@ def api_reoverlay():
             overlay_pipeline = VideoOverlayPipeline()
             output_path = str(settings.VIDEOS_DIR / f"{cargurus_id}_final.mp4")
 
-            final_path = overlay_pipeline.apply_text_overlays(
+            final_path = overlay_pipeline.apply_overlays(
                 video_path=source_video,
                 overlays=overlays,
                 output_path=output_path,

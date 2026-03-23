@@ -81,16 +81,41 @@ class VideoOverlayPipeline:
             return None
         return frame_path
 
-    def apply_text_overlays(
+    def _prepare_image_overlay(self, image_path: str, width: int, height: int, opacity: float = 1.0) -> str | None:
+        """Prepare an image overlay: resize to target dimensions and apply opacity.
+
+        Returns path to the prepared PNG image, or None on failure.
+        """
+        try:
+            img = Image.open(image_path).convert("RGBA")
+            img = img.resize((width, height), Image.LANCZOS)
+
+            if opacity < 1.0:
+                # Apply opacity by modifying alpha channel
+                r, g, b, a = img.split()
+                a = a.point(lambda x: int(x * opacity))
+                img = Image.merge("RGBA", (r, g, b, a))
+
+            prepared_path = str(settings.VIDEOS_DIR / f"_overlay_img_{Path(image_path).stem}_{width}x{height}.png")
+            img.save(prepared_path, "PNG")
+            return prepared_path
+        except Exception as e:
+            logger.error("Failed to prepare image overlay: %s", e)
+            return None
+
+    def apply_overlays(
         self,
         video_path: str,
         overlays: list[dict],
         output_path: str,
         progress_callback: "callable | None" = None,
     ) -> str | None:
-        """Burn text overlays directly onto the video using FFmpeg drawtext.
+        """Burn text and image overlays directly onto the video.
 
         Each overlay dict should contain:
+          - type: str — "text" or "image"
+
+        For type="text":
           - text: str — the text to display
           - x: float — x position as fraction of video width (0.0-1.0)
           - y: float — y position as fraction of video height (0.0-1.0)
@@ -98,7 +123,6 @@ class VideoOverlayPipeline:
           - fontColor: str — hex color like "#ffffff"
           - fontFamily: str — font family key (sans-serif, serif, monospace, liberation)
           - bold: bool — whether to use bold variant
-          - italic: bool — whether to use italic style (simulated)
           - backgroundColor: str — optional background color hex (empty = transparent)
           - backgroundOpacity: float — background opacity 0.0-1.0
           - shadowColor: str — shadow color hex (default "#000000")
@@ -106,6 +130,16 @@ class VideoOverlayPipeline:
           - shadowY: int — shadow y offset (default 2)
           - startTime: float — when to start showing (seconds, default 0)
           - endTime: float — when to stop showing (seconds, default=video duration)
+
+        For type="image":
+          - imagePath: str — path to the image file on disk
+          - x: float — x position as fraction (0.0-1.0)
+          - y: float — y position as fraction (0.0-1.0)
+          - width: int — display width in video pixels
+          - height: int — display height in video pixels
+          - opacity: float — image opacity 0.0-1.0 (default 1.0)
+          - startTime: float (optional)
+          - endTime: float (optional)
 
         Returns path to output video or None on failure.
         """
@@ -120,14 +154,17 @@ class VideoOverlayPipeline:
 
         _progress(20, "Building overlay filters...")
 
-        # Build drawtext filter chain
+        # Separate text and image overlays
+        text_overlays = [ov for ov in overlays if ov.get("type", "text") == "text"]
+        image_overlays = [ov for ov in overlays if ov.get("type") == "image"]
+
+        # Build drawtext filter chain for text overlays
         drawtext_filters = []
-        for i, ov in enumerate(overlays):
+        for ov in text_overlays:
             text = ov.get("text", "").replace("'", "\u2019").replace(":", "\\:")
             if not text:
                 continue
 
-            # Resolve font file
             family = ov.get("fontFamily", "sans-serif")
             bold = ov.get("bold", False)
             font_key = f"{family}-bold" if bold else family
@@ -136,33 +173,23 @@ class VideoOverlayPipeline:
                 font_file = FONT_FILES["sans-serif"]
 
             font_size = int(ov.get("fontSize", 36))
-
-            # Convert hex color to FFmpeg format
             font_color = ov.get("fontColor", "#ffffff")
-            if font_color.startswith("#"):
-                font_color = font_color  # FFmpeg accepts #RRGGBB
 
-            # Position: convert fraction to pixel expression
             x_frac = float(ov.get("x", 0.5))
             y_frac = float(ov.get("y", 0.5))
-            # FFmpeg expressions: use main_w/main_h
             x_expr = f"(main_w*{x_frac:.4f})"
             y_expr = f"(main_h*{y_frac:.4f})"
 
-            # Shadow
             shadow_color = ov.get("shadowColor", "#000000")
             shadow_x = int(ov.get("shadowX", 2))
             shadow_y = int(ov.get("shadowY", 2))
 
-            # Background box
             bg_color = ov.get("backgroundColor", "")
             bg_opacity = float(ov.get("backgroundOpacity", 0))
 
-            # Time range
             start_time = float(ov.get("startTime", 0))
             end_time = ov.get("endTime")
 
-            # Build the drawtext filter string
             parts = [
                 f"fontfile='{font_file}'",
                 f"text='{text}'",
@@ -175,14 +202,11 @@ class VideoOverlayPipeline:
                 f"shadowy={shadow_y}",
             ]
 
-            # Background box (semi-transparent)
             if bg_color and bg_opacity > 0:
-                alpha_hex = format(int(bg_opacity * 255), "02x")
-                parts.append(f"box=1")
+                parts.append("box=1")
                 parts.append(f"boxcolor={bg_color}@{bg_opacity:.2f}")
-                parts.append(f"boxborderw=8")
+                parts.append("boxborderw=8")
 
-            # Time-based enable/disable
             if start_time > 0 or end_time is not None:
                 conditions = []
                 if start_time > 0:
@@ -194,39 +218,121 @@ class VideoOverlayPipeline:
 
             drawtext_filters.append("drawtext=" + ":".join(parts))
 
-        if not drawtext_filters:
+        # Prepare image overlays — each needs a separate input and overlay filter
+        prepared_images = []  # list of (prepared_path, x_expr, y_expr, enable_expr)
+        cleanup_paths = []
+        for ov in image_overlays:
+            img_path = ov.get("imagePath", "")
+            if not img_path or not Path(img_path).exists():
+                logger.warning("Image overlay path not found: %s", img_path)
+                continue
+
+            img_w = int(ov.get("width", 100))
+            img_h = int(ov.get("height", 100))
+            opacity = float(ov.get("opacity", 1.0))
+
+            prepared = self._prepare_image_overlay(img_path, img_w, img_h, opacity)
+            if not prepared:
+                continue
+            cleanup_paths.append(prepared)
+
+            x_frac = float(ov.get("x", 0.5))
+            y_frac = float(ov.get("y", 0.5))
+            x_expr = f"(main_w*{x_frac:.4f})"
+            y_expr = f"(main_h*{y_frac:.4f})"
+
+            start_time = float(ov.get("startTime", 0))
+            end_time = ov.get("endTime")
+            enable_expr = None
+            if start_time > 0 or end_time is not None:
+                conditions = []
+                if start_time > 0:
+                    conditions.append(f"gte(t,{start_time:.2f})")
+                if end_time is not None:
+                    conditions.append(f"lte(t,{float(end_time):.2f})")
+                enable_expr = "*".join(conditions)
+
+            prepared_images.append((prepared, x_expr, y_expr, enable_expr))
+
+        total_overlays = len(drawtext_filters) + len(prepared_images)
+        if total_overlays == 0:
             shutil.copy2(video_path, output_path)
             return output_path
 
-        _progress(40, f"Applying {len(drawtext_filters)} text overlay(s)...")
+        _progress(40, f"Applying {total_overlays} overlay(s)...")
 
-        # Combine all drawtext filters
-        vf = ",".join(drawtext_filters)
+        # Build FFmpeg command
+        # Strategy: image overlays need extra -i inputs and [overlay] filter chain,
+        # then drawtext filters are appended at the end.
+        cmd = ["ffmpeg", "-y", "-i", video_path]
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", vf,
+        # Add image inputs
+        for prepared_path, _, _, _ in prepared_images:
+            cmd.extend(["-i", prepared_path])
+
+        # Build filter_complex for image overlays + drawtext
+        if prepared_images:
+            # Build a filter_complex chain
+            filter_parts = []
+            current_label = "[0:v]"
+
+            for i, (_, x_expr, y_expr, enable_expr) in enumerate(prepared_images):
+                input_idx = i + 1  # 0 is the video
+                out_label = f"[ov{i}]"
+                overlay_filter = f"{current_label}[{input_idx}:v]overlay=x={x_expr}:y={y_expr}"
+                if enable_expr:
+                    overlay_filter += f":enable='{enable_expr}'"
+                overlay_filter += out_label
+                filter_parts.append(overlay_filter)
+                current_label = out_label
+
+            # Append drawtext filters to the last output
+            if drawtext_filters:
+                # Strip the label from last overlay output and chain drawtext
+                dt_chain = ",".join(drawtext_filters)
+                filter_parts.append(f"{current_label}{dt_chain}[final]")
+                map_label = "[final]"
+            else:
+                map_label = current_label
+
+            filter_complex = ";".join(filter_parts)
+            cmd.extend(["-filter_complex", filter_complex, "-map", map_label, "-map", "0:a?"])
+        else:
+            # Text-only: simple -vf
+            vf = ",".join(drawtext_filters)
+            cmd.extend(["-vf", vf])
+
+        cmd.extend([
             "-c:v", "libx264",
             "-c:a", "copy",
             "-preset", "fast",
             "-crf", "23",
             output_path,
-        ]
+        ])
 
         logger.info("FFmpeg overlay cmd: %s", " ".join(cmd))
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         _progress(80, "Finalizing overlaid video...")
 
+        # Clean up prepared image files
+        for p in cleanup_paths:
+            Path(p).unlink(missing_ok=True)
+
         if result.returncode != 0:
-            logger.error("FFmpeg drawtext failed (rc=%d): %s", result.returncode, result.stderr[:500])
-            console.print(f"[red]Overlay drawtext error: {result.stderr[:300]}[/red]")
+            logger.error("FFmpeg overlay failed (rc=%d): %s", result.returncode, result.stderr[:500])
+            console.print(f"[red]Overlay error: {result.stderr[:300]}[/red]")
             return None
 
-        _progress(95, "Text overlays applied successfully")
-        logger.info("Text overlays applied: %s -> %s", video_path, output_path)
+        _progress(95, "Overlays applied successfully")
+        logger.info("Overlays applied: %s -> %s (%d text, %d image)",
+                     video_path, output_path, len(drawtext_filters), len(prepared_images))
         return output_path
+
+    # Keep backward-compatible alias
+    def apply_text_overlays(self, video_path, overlays, output_path, progress_callback=None):
+        """Backward-compatible wrapper — delegates to apply_overlays."""
+        return self.apply_overlays(video_path, overlays, output_path, progress_callback)
 
     def recompose_overlay(
         self,
