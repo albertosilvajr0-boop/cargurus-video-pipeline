@@ -5,10 +5,11 @@ Composites the final video from:
   2. AI-generated clip (20s) — from Sora 2
   3. CTA outro (5s) — price, phone number, address, call-to-action
 
-All overlays are burned in using FFmpeg filters (drawtext, overlay, drawbox).
+Text overlays can also be burned directly onto the video using FFmpeg drawtext.
 No external services needed.
 """
 
+import json
 import shutil
 import subprocess
 import traceback
@@ -22,6 +23,18 @@ from utils.logger import get_logger
 
 console = Console()
 logger = get_logger("overlay")
+
+# Font file mapping for FFmpeg drawtext filter
+FONT_FILES = {
+    "sans-serif": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "sans-serif-bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "serif": "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "serif-bold": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "monospace": "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "monospace-bold": "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+    "liberation": "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "liberation-bold": "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+}
 
 # Video dimensions for 9:16 vertical
 DIMENSIONS = {
@@ -47,6 +60,173 @@ class VideoOverlayPipeline:
             subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             raise RuntimeError("ffmpeg is required — install it: sudo apt install ffmpeg")
+
+    def extract_frame(self, video_path: str, time_sec: float = 1.0) -> str | None:
+        """Extract a single frame from a video at the given timestamp.
+
+        Returns path to the extracted PNG frame, or None on failure.
+        """
+        frame_path = str(settings.VIDEOS_DIR / f"_preview_frame_{Path(video_path).stem}.jpg")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(time_sec),
+            "-i", video_path,
+            "-frames:v", "1",
+            "-q:v", "2",
+            frame_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error("Frame extraction failed: %s", result.stderr[:300])
+            return None
+        return frame_path
+
+    def apply_text_overlays(
+        self,
+        video_path: str,
+        overlays: list[dict],
+        output_path: str,
+        progress_callback: "callable | None" = None,
+    ) -> str | None:
+        """Burn text overlays directly onto the video using FFmpeg drawtext.
+
+        Each overlay dict should contain:
+          - text: str — the text to display
+          - x: float — x position as fraction of video width (0.0-1.0)
+          - y: float — y position as fraction of video height (0.0-1.0)
+          - fontSize: int — font size in pixels
+          - fontColor: str — hex color like "#ffffff"
+          - fontFamily: str — font family key (sans-serif, serif, monospace, liberation)
+          - bold: bool — whether to use bold variant
+          - italic: bool — whether to use italic style (simulated)
+          - backgroundColor: str — optional background color hex (empty = transparent)
+          - backgroundOpacity: float — background opacity 0.0-1.0
+          - shadowColor: str — shadow color hex (default "#000000")
+          - shadowX: int — shadow x offset (default 2)
+          - shadowY: int — shadow y offset (default 2)
+          - startTime: float — when to start showing (seconds, default 0)
+          - endTime: float — when to stop showing (seconds, default=video duration)
+
+        Returns path to output video or None on failure.
+        """
+        if not overlays:
+            logger.info("No overlays to apply, copying video as-is")
+            shutil.copy2(video_path, output_path)
+            return output_path
+
+        def _progress(pct, msg):
+            if progress_callback:
+                progress_callback(pct, msg)
+
+        _progress(20, "Building overlay filters...")
+
+        # Build drawtext filter chain
+        drawtext_filters = []
+        for i, ov in enumerate(overlays):
+            text = ov.get("text", "").replace("'", "\u2019").replace(":", "\\:")
+            if not text:
+                continue
+
+            # Resolve font file
+            family = ov.get("fontFamily", "sans-serif")
+            bold = ov.get("bold", False)
+            font_key = f"{family}-bold" if bold else family
+            font_file = FONT_FILES.get(font_key, FONT_FILES.get(family, FONT_FILES["sans-serif"]))
+            if not Path(font_file).exists():
+                font_file = FONT_FILES["sans-serif"]
+
+            font_size = int(ov.get("fontSize", 36))
+
+            # Convert hex color to FFmpeg format
+            font_color = ov.get("fontColor", "#ffffff")
+            if font_color.startswith("#"):
+                font_color = font_color  # FFmpeg accepts #RRGGBB
+
+            # Position: convert fraction to pixel expression
+            x_frac = float(ov.get("x", 0.5))
+            y_frac = float(ov.get("y", 0.5))
+            # FFmpeg expressions: use main_w/main_h
+            x_expr = f"(main_w*{x_frac:.4f})"
+            y_expr = f"(main_h*{y_frac:.4f})"
+
+            # Shadow
+            shadow_color = ov.get("shadowColor", "#000000")
+            shadow_x = int(ov.get("shadowX", 2))
+            shadow_y = int(ov.get("shadowY", 2))
+
+            # Background box
+            bg_color = ov.get("backgroundColor", "")
+            bg_opacity = float(ov.get("backgroundOpacity", 0))
+
+            # Time range
+            start_time = float(ov.get("startTime", 0))
+            end_time = ov.get("endTime")
+
+            # Build the drawtext filter string
+            parts = [
+                f"fontfile='{font_file}'",
+                f"text='{text}'",
+                f"fontsize={font_size}",
+                f"fontcolor={font_color}",
+                f"x={x_expr}",
+                f"y={y_expr}",
+                f"shadowcolor={shadow_color}",
+                f"shadowx={shadow_x}",
+                f"shadowy={shadow_y}",
+            ]
+
+            # Background box (semi-transparent)
+            if bg_color and bg_opacity > 0:
+                alpha_hex = format(int(bg_opacity * 255), "02x")
+                parts.append(f"box=1")
+                parts.append(f"boxcolor={bg_color}@{bg_opacity:.2f}")
+                parts.append(f"boxborderw=8")
+
+            # Time-based enable/disable
+            if start_time > 0 or end_time is not None:
+                conditions = []
+                if start_time > 0:
+                    conditions.append(f"gte(t,{start_time:.2f})")
+                if end_time is not None:
+                    conditions.append(f"lte(t,{float(end_time):.2f})")
+                enable_expr = "*".join(conditions)
+                parts.append(f"enable='{enable_expr}'")
+
+            drawtext_filters.append("drawtext=" + ":".join(parts))
+
+        if not drawtext_filters:
+            shutil.copy2(video_path, output_path)
+            return output_path
+
+        _progress(40, f"Applying {len(drawtext_filters)} text overlay(s)...")
+
+        # Combine all drawtext filters
+        vf = ",".join(drawtext_filters)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-c:a", "copy",
+            "-preset", "fast",
+            "-crf", "23",
+            output_path,
+        ]
+
+        logger.info("FFmpeg overlay cmd: %s", " ".join(cmd))
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        _progress(80, "Finalizing overlaid video...")
+
+        if result.returncode != 0:
+            logger.error("FFmpeg drawtext failed (rc=%d): %s", result.returncode, result.stderr[:500])
+            console.print(f"[red]Overlay drawtext error: {result.stderr[:300]}[/red]")
+            return None
+
+        _progress(95, "Text overlays applied successfully")
+        logger.info("Text overlays applied: %s -> %s", video_path, output_path)
+        return output_path
 
     def recompose_overlay(
         self,
