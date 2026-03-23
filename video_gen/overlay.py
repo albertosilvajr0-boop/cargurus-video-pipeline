@@ -196,7 +196,9 @@ class VideoOverlayPipeline:
                     vehicle_specs=vehicle_specs,
                 )
                 if intro_frame:
-                    self._image_to_video(intro_frame, str(intro_path), duration=2)
+                    if not self._image_to_video(intro_frame, str(intro_path), duration=2):
+                        logger.warning("Intro video generation failed, skipping intro")
+                        intro_path = None
                 else:
                     console.print("[yellow]Skipping intro — could not create frame[/yellow]")
                     intro_path = None
@@ -207,8 +209,11 @@ class VideoOverlayPipeline:
                 vehicle_name, price, phone, address, cta, logo
             )
             if outro_frame:
-                self._image_to_video(outro_frame, str(outro_path), duration=5)
+                if not self._image_to_video(outro_frame, str(outro_path), duration=5):
+                    logger.error("Outro video generation failed — CTA overlay will be missing")
+                    outro_path = None
             else:
+                logger.error("Outro frame creation failed — CTA overlay will be missing")
                 console.print("[yellow]Skipping outro — could not create frame[/yellow]")
                 outro_path = None
 
@@ -475,14 +480,20 @@ class VideoOverlayPipeline:
         except Exception as e:
             console.print(f"[yellow]Logo paste error: {e}[/yellow]")
 
-    def _image_to_video(self, image_path: str, output_path: str, duration: float):
-        """Convert a static image to a video of given duration with subtle zoom."""
+    def _image_to_video(self, image_path: str, output_path: str, duration: float) -> bool:
+        """Convert a static image to a video of given duration with subtle zoom.
+
+        Generates a silent audio track so concat with audio clips works correctly.
+        Returns True on success, False on failure.
+        """
         # Use zoompan for a slow Ken Burns effect
         cmd = [
             "ffmpeg", "-y",
             "-loop", "1",
             "-i", image_path,
+            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100",
             "-c:v", "libx264",
+            "-c:a", "aac",
             "-t", str(duration),
             "-pix_fmt", "yuv420p",
             "-vf", (
@@ -491,16 +502,16 @@ class VideoOverlayPipeline:
                 f"zoompan=z='min(zoom+0.001,1.04)':x='iw/2-(iw/zoom/2)':"
                 f"y='ih/2-(ih/zoom/2)':d={duration * self.fps}:s={self.width}x{self.height}:fps={self.fps}"
             ),
-            "-an",  # No audio for intro/outro
             "-preset", "fast",
             output_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            logger.warning("FFmpeg image-to-video returned %d: %s", result.returncode, result.stderr[:500])
-            console.print(f"[yellow]Image-to-video warning: {result.stderr[:200]}[/yellow]")
-        else:
-            logger.debug("FFmpeg image-to-video OK: %s -> %s", image_path, output_path)
+            logger.error("FFmpeg image-to-video failed (rc=%d): %s", result.returncode, result.stderr[:500])
+            console.print(f"[red]Image-to-video error: {result.stderr[:300]}[/red]")
+            return False
+        logger.debug("FFmpeg image-to-video OK: %s -> %s", image_path, output_path)
+        return True
 
     def _normalize_clip(self, input_path: str, output_path: str):
         """Normalize AI clip to match our dimensions, fps, and codec."""
@@ -556,7 +567,6 @@ class VideoOverlayPipeline:
             "-c:a", "aac",
             "-preset", "fast",
             "-crf", "23",
-            "-shortest",
             output_path,
         ]
 
