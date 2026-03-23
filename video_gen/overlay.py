@@ -59,6 +59,7 @@ class VideoOverlayPipeline:
         dealer_logo_path: str = "",
         cta_text: str = "",
         vehicle_specs: dict | None = None,
+        progress_callback: "callable | None" = None,
     ) -> str | None:
         """
         Re-apply overlays to an already-downloaded AI clip — zero API cost.
@@ -107,6 +108,9 @@ class VideoOverlayPipeline:
             f"[bold cyan]Re-applying overlays[/bold cyan] (local FFmpeg only — [green]$0 API cost[/green])"
         )
 
+        if progress_callback:
+            progress_callback(10, "Located clip file, starting overlay compose...")
+
         return self.compose_final_video(
             ai_clip_path=clip_path,
             hero_photo_path=hero_photo_path,
@@ -118,6 +122,7 @@ class VideoOverlayPipeline:
             dealer_logo_path=dealer_logo_path,
             cta_text=cta_text,
             vehicle_specs=vehicle_specs,
+            progress_callback=progress_callback,
         )
 
     def compose_final_video(
@@ -132,6 +137,7 @@ class VideoOverlayPipeline:
         dealer_logo_path: str = "",
         cta_text: str = "",
         vehicle_specs: dict | None = None,
+        progress_callback: "callable | None" = None,
     ) -> str | None:
         """
         Compose the final branded video.
@@ -172,7 +178,12 @@ class VideoOverlayPipeline:
         outro_path = settings.VIDEOS_DIR / f"{output_name}_outro.mp4"
         final_path = settings.VIDEOS_DIR / f"{output_name}_final.mp4"
 
+        def _progress(pct, msg):
+            if progress_callback:
+                progress_callback(pct, msg)
+
         try:
+            _progress(20, "Generating intro frame...")
             # Step 1: Generate intro frame and convert to 2s video
             # Skip photo-based intro — jump straight into AI clip.
             # Only generate a text-based intro for VIN-only mode (no hero photo).
@@ -190,6 +201,7 @@ class VideoOverlayPipeline:
                     console.print("[yellow]Skipping intro — could not create frame[/yellow]")
                     intro_path = None
 
+            _progress(35, "Generating CTA outro frame...")
             # Step 2: Generate outro frame and convert to 5s video
             outro_frame = self._create_outro_frame(
                 vehicle_name, price, phone, address, cta, logo
@@ -200,10 +212,12 @@ class VideoOverlayPipeline:
                 console.print("[yellow]Skipping outro — could not create frame[/yellow]")
                 outro_path = None
 
+            _progress(50, "Normalizing AI clip dimensions...")
             # Step 3: Normalize the AI clip to match our dimensions/fps
             normalized_clip = settings.VIDEOS_DIR / f"{output_name}_normalized.mp4"
             self._normalize_clip(ai_clip_path, str(normalized_clip))
 
+            _progress(70, "Concatenating segments with transitions...")
             # Step 4: Concatenate intro + AI clip + outro with transitions
             segments = []
             if intro_path and intro_path.exists():
@@ -214,6 +228,7 @@ class VideoOverlayPipeline:
 
             result = self._concat_with_fades(segments, str(final_path))
 
+            _progress(90, "Cleaning up temporary files...")
             # Cleanup temp files
             for tmp in [intro_path, outro_path, normalized_clip]:
                 if tmp and Path(tmp).exists():

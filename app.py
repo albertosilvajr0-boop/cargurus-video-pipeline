@@ -1436,12 +1436,30 @@ def api_reoverlay():
         }
 
     def _run_reoverlay():
+        def _update_progress(percent, message):
+            """Callback to update job progress from overlay pipeline."""
+            logger.info("Re-overlay progress [%s]: %d%% — %s", job_id, percent, message)
+            with _jobs_lock:
+                _active_jobs[job_id].update(
+                    progress=message,
+                    percent=percent,
+                )
+
         try:
             # Ensure the _clip.mp4 exists locally — download from GCS if needed
             clip_local = settings.VIDEOS_DIR / f"{cargurus_id}_clip.mp4"
+            _update_progress(5, "Checking for local clip file...")
             if not clip_local.exists() and is_gcs_enabled():
                 logger.info("Local clip missing, downloading from GCS: %s", clip_local.name)
+                _update_progress(5, "Downloading clip from cloud storage...")
                 gcs_download_video(f"videos/{clip_local.name}", str(clip_local))
+
+            if not clip_local.exists():
+                logger.error("Clip file not found locally or in GCS: %s", clip_local)
+                _update_progress(0, f"Clip file not found: {clip_local.name}")
+                with _jobs_lock:
+                    _active_jobs[job_id].update(status="error")
+                return
 
             overlay = VideoOverlayPipeline()
             final_path = overlay.recompose_overlay(
@@ -1454,13 +1472,16 @@ def api_reoverlay():
                 dealer_logo_path=settings.DEALER_LOGO_PATH,
                 cta_text=data.get("cta_text") or "",
                 vehicle_specs=vehicle_specs,
+                progress_callback=_update_progress,
             )
 
             if not final_path:
+                logger.error("Re-overlay returned no output for job %s", job_id)
                 with _jobs_lock:
                     _active_jobs[job_id].update(
                         status="error",
                         progress="Re-overlay failed — make sure the _clip.mp4 file still exists",
+                        percent=0,
                     )
                 return
 
@@ -1478,19 +1499,21 @@ def api_reoverlay():
                 status_kwargs["video_url"] = video_url
             update_vehicle_status(vehicle_id, "video_complete", **status_kwargs)
 
+            _update_progress(95, "Uploading to cloud storage..." if is_gcs_enabled() else "Finalizing...")
             with _jobs_lock:
                 _active_jobs[job_id].update(
                     status="complete",
                     progress="Overlays updated — $0 API cost!",
+                    percent=100,
                     video_path=final_path,
                     video_filename=Path(final_path).name,
                     video_url=video_url,
                 )
 
         except Exception as e:
-            logger.error("Re-overlay error (job=%s): %s", job_id, e)
+            logger.error("Re-overlay error (job=%s): %s", job_id, e, exc_info=True)
             with _jobs_lock:
-                _active_jobs[job_id].update(status="error", progress=f"Error: {e}")
+                _active_jobs[job_id].update(status="error", progress=f"Error: {e}", percent=0)
 
     thread = threading.Thread(target=_run_reoverlay, daemon=True)
     thread.start()

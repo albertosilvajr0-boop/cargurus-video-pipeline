@@ -2900,9 +2900,16 @@
                         html += `<div class="form-field"><label>Address Override</label><input type="text" id="reoverlayAddress-${v.id}" value="" placeholder="Uses branding default"></div>`;
                         html += `</div>`;
                         html += `<div style="margin-top:12px;display:flex;gap:8px;align-items:center">`;
-                        html += `<button class="btn primary" onclick="submitReoverlay(${v.id})">Apply Overlays</button>`;
+                        html += `<button class="btn primary" id="reoverlayBtn-${v.id}" onclick="submitReoverlay(${v.id})">Apply Overlays</button>`;
                         html += `<span id="reoverlayStatus-${v.id}" style="font-size:0.85rem;color:var(--muted)"></span>`;
-                        html += `</div></div>`;
+                        html += `</div>`;
+                        html += `<div id="reoverlayProgress-${v.id}" style="display:none;margin-top:10px">`;
+                        html += `<div style="background:var(--surface);border-radius:6px;height:8px;overflow:hidden">`;
+                        html += `<div id="reoverlayBar-${v.id}" style="height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--green));border-radius:6px;transition:width 0.4s ease"></div>`;
+                        html += `</div>`;
+                        html += `<div id="reoverlayStep-${v.id}" style="font-size:0.75rem;color:var(--muted);margin-top:4px"></div>`;
+                        html += `</div>`;
+                        html += `</div>`;
                     }
                 }
 
@@ -2934,8 +2941,18 @@
 
         async function submitReoverlay(vehicleId) {
             const statusEl = document.getElementById(`reoverlayStatus-${vehicleId}`);
+            const progressWrap = document.getElementById(`reoverlayProgress-${vehicleId}`);
+            const progressBar = document.getElementById(`reoverlayBar-${vehicleId}`);
+            const stepEl = document.getElementById(`reoverlayStep-${vehicleId}`);
+            const btn = document.getElementById(`reoverlayBtn-${vehicleId}`);
+
             statusEl.textContent = 'Submitting...';
             statusEl.style.color = 'var(--cyan)';
+            progressWrap.style.display = 'block';
+            progressBar.style.width = '0%';
+            stepEl.textContent = '';
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
 
             const priceRaw = document.getElementById(`reoverlayPrice-${vehicleId}`).value.replace(/[^0-9.]/g, '');
             const body = {
@@ -2957,21 +2974,39 @@
                 if (!res.ok) {
                     statusEl.textContent = data.error || 'Failed';
                     statusEl.style.color = 'var(--red)';
+                    progressBar.style.width = '0%';
+                    progressBar.style.background = 'var(--red)';
+                    stepEl.textContent = `Error: ${data.error || 'Unknown error'}`;
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    console.error('[Re-overlay] API error:', data);
                     return;
                 }
 
                 statusEl.textContent = 'Processing...';
                 statusEl.style.color = 'var(--cyan)';
+                progressBar.style.width = '5%';
 
                 // Poll for completion
                 const jobId = data.job_id;
+                const startTime = Date.now();
                 const poll = setInterval(async () => {
                     try {
                         const jr = await fetch(`/api/job/${jobId}`);
                         const job = await jr.json();
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+                        if (job.percent !== undefined) {
+                            progressBar.style.width = `${job.percent}%`;
+                        }
+
                         if (job.status === 'complete') {
                             clearInterval(poll);
+                            progressBar.style.width = '100%';
                             statusEl.innerHTML = '<span style="color:var(--green)">Done! Overlays updated ($0 cost)</span>';
+                            stepEl.textContent = `Completed in ${elapsed}s`;
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
                             // Refresh the video in the modal
                             const vidEl = document.querySelector('#modalContent video');
                             if (vidEl && job.video_filename) {
@@ -2982,21 +3017,39 @@
                             refreshVideosTab();
                         } else if (job.status === 'error') {
                             clearInterval(poll);
-                            statusEl.textContent = job.progress || 'Re-overlay failed';
+                            progressBar.style.background = 'var(--red)';
+                            statusEl.textContent = 'Re-overlay failed';
                             statusEl.style.color = 'var(--red)';
+                            stepEl.textContent = job.progress || 'Unknown error — check server logs';
+                            stepEl.style.color = 'var(--red)';
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+                            console.error('[Re-overlay] Job failed:', job);
                         } else {
-                            statusEl.textContent = job.progress || 'Processing...';
+                            statusEl.textContent = `Processing... (${elapsed}s)`;
+                            stepEl.textContent = job.progress || 'Working...';
                         }
                     } catch (e) {
                         clearInterval(poll);
+                        progressBar.style.background = 'var(--red)';
                         statusEl.textContent = 'Lost connection';
                         statusEl.style.color = 'var(--red)';
+                        stepEl.textContent = `Network error: ${e.message}`;
+                        stepEl.style.color = 'var(--red)';
+                        btn.disabled = false;
+                        btn.style.opacity = '1';
+                        console.error('[Re-overlay] Poll error:', e);
                     }
                 }, 1500);
 
             } catch (e) {
                 statusEl.textContent = 'Network error';
                 statusEl.style.color = 'var(--red)';
+                stepEl.textContent = `Could not reach server: ${e.message}`;
+                stepEl.style.color = 'var(--red)';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                console.error('[Re-overlay] Submit error:', e);
             }
         }
 
