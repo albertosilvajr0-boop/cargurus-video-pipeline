@@ -3007,11 +3007,13 @@
                             stepEl.textContent = `Completed in ${elapsed}s`;
                             btn.disabled = false;
                             btn.style.opacity = '1';
-                            // Refresh the video in the modal
+                            // Refresh the video in the modal (cache-bust to force reload)
                             const vidEl = document.querySelector('#modalContent video');
                             if (vidEl && job.video_filename) {
-                                const newSrc = job.video_url || `/videos/${job.video_filename}`;
-                                vidEl.src = newSrc;
+                                const cacheBust = `t=${Date.now()}`;
+                                const baseSrc = job.video_url || `/videos/${job.video_filename}`;
+                                const sep = baseSrc.includes('?') ? '&' : '?';
+                                vidEl.src = baseSrc + sep + cacheBust;
                                 vidEl.load();
                             }
                             refreshVideosTab();
