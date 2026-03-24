@@ -21,16 +21,17 @@
     "sticker_url": null,
     "photo_paths": "[]",
     "sticker_path": null,
+    "carfax_path": null,
     "video_script": null,
     "video_path": null,
     "video_url": null,
     "video_engine": null,
     "video_cost": 0.0,
     "prompt_template_id": null,
-    "scraped_at": "2026-03-19 17:24:33",
+    "scraped_at": "2026-03-24 19:46:36",
     "script_generated_at": null,
     "video_generated_at": null,
-    "updated_at": "2026-03-19 17:24:33",
+    "updated_at": "2026-03-24 19:46:36",
     "prompt_template_name": null
   }
 ]
