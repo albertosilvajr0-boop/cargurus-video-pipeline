@@ -94,7 +94,7 @@ class SoraGenerator:
         """Generate clip with retry logic."""
         size = SORA_SIZES.get(settings.VIDEO_ASPECT_RATIO, "720x1280")
         # Sora 2 API accepts seconds values of 5, 10, 15, or 20
-        raw_duration = 20  # default Sora clip duration
+        raw_duration = settings.SORA_CLIP_DURATION
         valid_durations = [5, 10, 15, 20]
         duration = min(d for d in valid_durations if d >= raw_duration) if raw_duration <= 20 else 20
 
@@ -191,7 +191,7 @@ class SoraGenerator:
 
         console.print(f"[dim]Sora job created: {job_id} — polling for completion...[/dim]")
 
-        max_wait = 900  # 15-minute safety limit
+        max_wait = settings.SORA_MAX_WAIT_SECONDS
         start = time.time()
         poll_count = 0
         last_status = None

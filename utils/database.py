@@ -182,13 +182,40 @@ def init_db():
     conn.close()
 
 
+# Whitelist of allowed column names for dynamic SQL in vehicles table.
+# Prevents SQL injection via field name manipulation.
+VEHICLES_ALLOWED_FIELDS = frozenset({
+    "cargurus_id", "vin", "year", "make", "model", "trim", "price", "mileage",
+    "exterior_color", "interior_color", "engine", "transmission", "drivetrain",
+    "listing_url", "status", "error_message", "photo_urls", "sticker_url",
+    "photo_paths", "sticker_path", "carfax_path", "video_script", "video_path",
+    "video_url", "video_engine", "video_cost", "prompt_template_id",
+    "scraped_at", "script_generated_at", "video_generated_at", "updated_at",
+})
+
+
+def _validate_field_names(fields: dict, allowed: frozenset) -> dict:
+    """Filter a dict to only contain allowed field names. Logs warnings for rejected keys."""
+    clean = {}
+    for key, value in fields.items():
+        if key in allowed:
+            clean[key] = value
+        else:
+            import logging
+            logging.getLogger("database").warning("Rejected unknown field name: %s", key)
+    return clean
+
+
 def upsert_vehicle(vehicle_data: dict) -> int:
     """Insert or update a vehicle record. Returns the vehicle ID."""
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Sanitize field names against whitelist
+    safe_data = _validate_field_names(vehicle_data, VEHICLES_ALLOWED_FIELDS)
+
     # Check if vehicle exists
-    cursor.execute("SELECT id FROM vehicles WHERE cargurus_id = ?", (vehicle_data.get("cargurus_id"),))
+    cursor.execute("SELECT id FROM vehicles WHERE cargurus_id = ?", (safe_data.get("cargurus_id"),))
     row = cursor.fetchone()
 
     if row:
@@ -196,7 +223,7 @@ def upsert_vehicle(vehicle_data: dict) -> int:
         vehicle_id = row["id"]
         fields = []
         values = []
-        for key, value in vehicle_data.items():
+        for key, value in safe_data.items():
             if key != "cargurus_id":
                 fields.append(f"{key} = ?")
                 values.append(value)
@@ -207,9 +234,9 @@ def upsert_vehicle(vehicle_data: dict) -> int:
         cursor.execute(f"UPDATE vehicles SET {', '.join(fields)} WHERE id = ?", values)
     else:
         # Insert new
-        columns = list(vehicle_data.keys())
+        columns = list(safe_data.keys())
         placeholders = ", ".join(["?"] * len(columns))
-        values = [vehicle_data[col] for col in columns]
+        values = [safe_data[col] for col in columns]
 
         cursor.execute(
             f"INSERT INTO vehicles ({', '.join(columns)}) VALUES ({placeholders})",
@@ -229,7 +256,9 @@ def update_vehicle_status(vehicle_id: int, status: str, **kwargs):
     fields = ["status = ?", "updated_at = ?"]
     values = [status, datetime.now().isoformat()]
 
-    for key, value in kwargs.items():
+    # Validate kwargs against whitelist
+    safe_kwargs = _validate_field_names(kwargs, VEHICLES_ALLOWED_FIELDS)
+    for key, value in safe_kwargs.items():
         fields.append(f"{key} = ?")
         values.append(value)
 
@@ -799,8 +828,9 @@ def _auto_export_templates():
     try:
         from utils.data_persistence import export_prompt_templates
         export_prompt_templates()
-    except Exception:
-        pass  # Don't let export failures break the main operation
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning("Auto-export templates failed: %s", e)
 
 
 def _auto_export_vehicles():
@@ -808,8 +838,9 @@ def _auto_export_vehicles():
     try:
         from utils.data_persistence import export_vehicles
         export_vehicles()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning("Auto-export vehicles failed: %s", e)
 
 
 def _auto_export_branding():
@@ -817,8 +848,9 @@ def _auto_export_branding():
     try:
         from utils.data_persistence import export_branding
         export_branding()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning("Auto-export branding failed: %s", e)
 
 
 def _auto_export_people():
@@ -826,5 +858,6 @@ def _auto_export_people():
     try:
         from utils.data_persistence import export_people
         export_people()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning("Auto-export people failed: %s", e)

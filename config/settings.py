@@ -42,6 +42,12 @@ PRIMARY_VIDEO_ENGINE = "sora"
 VIDEO_ASPECT_RATIO = os.getenv("VIDEO_ASPECT_RATIO", "9:16")
 VIDEO_RESOLUTION = os.getenv("VIDEO_RESOLUTION", "720p")
 TARGET_VIDEO_DURATION = 25  # seconds (20s AI clip + 5s CTA outro)
+SORA_CLIP_DURATION = int(os.getenv("SORA_CLIP_DURATION", "20"))  # seconds (5, 10, 15, or 20)
+SORA_MAX_WAIT_SECONDS = int(os.getenv("SORA_MAX_WAIT_SECONDS", "900"))  # 15-minute safety limit
+VEO_MAX_WAIT_SECONDS = int(os.getenv("VEO_MAX_WAIT_SECONDS", "900"))
+
+# Upload validation
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "20"))
 
 # Overlay settings
 OVERLAY_FONT = os.getenv("OVERLAY_FONT", "")  # Path to .ttf font, or empty for default

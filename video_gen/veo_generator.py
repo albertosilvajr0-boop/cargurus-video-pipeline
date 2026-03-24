@@ -74,13 +74,12 @@ class VeoGenerator:
             clip_path = await self._generate(prompt, reference_image_path, output_name)
 
             if clip_path:
-                clip_dur = settings.CLIP_DURATION["veo"]
-                cost = clip_dur * settings.COST_PER_SECOND["veo"][self.quality]
+                cost = settings.get_cost_per_video("veo", self.quality)
                 self.cost_tracker.record_cost(
                     vehicle_id=0,
                     engine="veo",
                     quality=self.quality,
-                    duration=clip_dur,
+                    duration=20.0,
                     cost=cost,
                     call_type="video_generation",
                 )
@@ -138,7 +137,7 @@ class VeoGenerator:
 
         logger.info("Veo operation started — polling for completion...")
         console.print("[dim]Waiting for Veo generation...[/dim]")
-        max_wait = 900  # 15-minute safety limit
+        max_wait = settings.VEO_MAX_WAIT_SECONDS
         start = time.time()
         poll_count = 0
 
