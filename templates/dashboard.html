@@ -633,6 +633,15 @@
                         </div>
                     </div>
 
+                    <!-- Client Name (VIN mode) -->
+                    <div class="form-section">
+                        <h3>Client Name (optional)</h3>
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">If provided, the video will open with a personalized greeting: "Hi [Client Name], I'm [Person] with San Antonio Dodge"</p>
+                        <div class="form-field">
+                            <input type="text" id="vinClientName" placeholder="e.g. John Smith">
+                        </div>
+                    </div>
+
                     <!-- Person in Video (VIN mode) -->
                     <div class="form-section" id="vinPersonSection">
                         <h3>Person in Video</h3>
@@ -704,6 +713,15 @@
                                 <input type="text" id="overrideCTA" placeholder="e.g. Call Today!">
                             </div>
                             <div class="form-field"></div>
+                        </div>
+                    </div>
+
+                    <!-- Client Name (Upload mode) -->
+                    <div class="form-section">
+                        <h3>Client Name (optional)</h3>
+                        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">If provided, the video will open with a personalized greeting: "Hi [Client Name], I'm [Person] with San Antonio Dodge"</p>
+                        <div class="form-field">
+                            <input type="text" id="uploadClientName" placeholder="e.g. John Smith">
                         </div>
                     </div>
 
@@ -948,6 +966,11 @@
                                 <div id="mediaGenCarfaxPreview" class="preview-grid"></div>
                             </div>
                         </div>
+                    </div>
+                    <div class="form-field" style="margin-bottom:12px">
+                        <label>Client Name (optional)</label>
+                        <input type="text" id="mediaClientName" placeholder="e.g. John Smith" style="margin-bottom:4px">
+                        <span style="color:var(--muted);font-size:0.75rem">Personalizes greeting: "Hi [Client Name], I'm [Person] with San Antonio Dodge"</span>
                     </div>
                     <div class="form-field" style="margin-bottom:12px">
                         <label>Person in Video</label>
@@ -1394,6 +1417,7 @@
 
             const templateId = document.getElementById('videoTypeSelect').value;
             const vinPersonOption = document.getElementById('vinPersonSelect').value;
+            const vinClientName = document.getElementById('vinClientName').value.trim();
             const body = {
                 vin,
                 price,
@@ -1402,6 +1426,7 @@
                 cta_text: document.getElementById('vinCTA').value,
                 prompt_template_id: templateId || null,
                 person_option: vinPersonOption,
+                client_name: vinClientName || null,
             };
 
             // Switch to progress view with VIN-specific steps
@@ -1536,6 +1561,10 @@
             // Add person option
             const personOption = document.getElementById('uploadPersonSelect').value;
             formData.append('person_option', personOption);
+
+            // Add client name
+            const clientName = document.getElementById('uploadClientName').value.trim();
+            if (clientName) formData.append('client_name', clientName);
 
             // Add overrides
             const phone = document.getElementById('overridePhone').value;
@@ -2443,12 +2472,14 @@
                 }
             }
 
+            const mediaClientName = document.getElementById('mediaClientName').value.trim();
             const body = {
                 media_ids: Array.from(selectedMediaIds),
                 dealer_phone: document.getElementById('mediaPhone').value,
                 dealer_address: document.getElementById('mediaAddress').value,
                 cta_text: document.getElementById('mediaCtaText').value,
                 person_option: document.getElementById('mediaPersonSelect').value,
+                client_name: mediaClientName || null,
             };
             const templateId = document.getElementById('mediaVideoType').value;
             if (templateId) body.prompt_template_id = templateId;

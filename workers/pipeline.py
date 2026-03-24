@@ -66,13 +66,24 @@ class Pipeline:
 
     # --- Step: Gemini multimodal extraction ---
 
-    def extract_from_images(self, image_paths: list[str], prompt_template: dict | None = None) -> dict | None:
+    def extract_from_images(
+        self,
+        image_paths: list[str],
+        prompt_template: dict | None = None,
+        client_name: str | None = None,
+        person_name: str | None = None,
+    ) -> dict | None:
         """Run Gemini multimodal extraction on uploaded images."""
         from scripts.multimodal_extractor import MultimodalExtractor
 
         self.update_job(status="extracting", progress="Sending images to Gemini for analysis...")
         extractor = MultimodalExtractor()
-        result = extractor.extract_and_script(image_paths, prompt_template=prompt_template)
+        result = extractor.extract_and_script(
+            image_paths,
+            prompt_template=prompt_template,
+            client_name=client_name,
+            person_name=person_name,
+        )
         if not result:
             detail = getattr(extractor, "_last_error", None) or "could not analyze images"
             self.update_job(status="error", progress=f"Gemini extraction failed — {detail}")
@@ -81,14 +92,27 @@ class Pipeline:
 
     # --- Step: Generate script from VIN specs ---
 
-    def generate_vin_script(self, specs: dict, price=None, prompt_template: dict | None = None) -> dict | None:
+    def generate_vin_script(
+        self,
+        specs: dict,
+        price=None,
+        prompt_template: dict | None = None,
+        client_name: str | None = None,
+        person_name: str | None = None,
+    ) -> dict | None:
         """Generate a video script from VIN-decoded specs."""
         from scripts.vin_script_generator import VINScriptGenerator
 
         vehicle_name = specs.get("vehicle_name", "vehicle")
         self.update_job(status="extracting", progress=f"Generating video script for {vehicle_name}...")
         generator = VINScriptGenerator()
-        result = generator.generate(specs, price=price, prompt_template=prompt_template)
+        result = generator.generate(
+            specs,
+            price=price,
+            prompt_template=prompt_template,
+            client_name=client_name,
+            person_name=person_name,
+        )
         if not result:
             self.update_job(status="error", progress="Failed to generate video script")
             return None
@@ -218,6 +242,8 @@ def run_upload_pipeline(
     prompt_template_id: str | None = None,
     person_photo_path: str | None = None,
     carfax_path: str | None = None,
+    client_name: str | None = None,
+    person_name: str | None = None,
     jobs_lock: threading.Lock = None,
     active_jobs: dict = None,
 ):
@@ -238,7 +264,12 @@ def run_upload_pipeline(
                 gcs_upload_directory(str(upload_dir), f"uploads/{upload_id}")
 
         # Step 1: Gemini extraction
-        result = pipe.extract_from_images(all_image_paths, prompt_template=prompt_template)
+        result = pipe.extract_from_images(
+            all_image_paths,
+            prompt_template=prompt_template,
+            client_name=client_name,
+            person_name=person_name,
+        )
         if not result:
             return
 
@@ -322,6 +353,8 @@ def run_vin_pipeline(
     prompt_template: dict | None = None,
     prompt_template_id: str | None = None,
     person_photo_path: str | None = None,
+    client_name: str | None = None,
+    person_name: str | None = None,
     jobs_lock: threading.Lock = None,
     active_jobs: dict = None,
 ):
@@ -341,7 +374,13 @@ def run_vin_pipeline(
 
         # Step 2: Generate script
         price = overrides.get("price")
-        result = pipe.generate_vin_script(specs, price=price, prompt_template=prompt_template)
+        result = pipe.generate_vin_script(
+            specs,
+            price=price,
+            prompt_template=prompt_template,
+            client_name=client_name,
+            person_name=person_name,
+        )
         if not result:
             return
 

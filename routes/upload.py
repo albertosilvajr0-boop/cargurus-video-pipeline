@@ -9,7 +9,7 @@ from flask import Blueprint, jsonify, request
 from config import settings
 from utils.database import (
     get_prompt_template, get_photos_for_person,
-    get_media_items_by_ids,
+    get_media_items_by_ids, get_person,
 )
 from utils.cloud_storage import is_gcs_enabled
 from utils.data_persistence import export_media_library
@@ -50,6 +50,17 @@ def _resolve_person_photo(person_option: str | None) -> str | None:
     except (ValueError, TypeError):
         pass
     return None
+
+
+def _resolve_person_name(person_option: str | None) -> str | None:
+    """Resolve a person_option value to the person's name."""
+    if not person_option or person_option == "ai":
+        return None
+    try:
+        person = get_person(int(person_option))
+        return person["name"] if person else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _validate_upload_file(file) -> str | None:
@@ -139,7 +150,10 @@ def api_upload_vehicle():
         "cta_text": request.form.get("cta_text", ""),
     }
 
-    person_photo_path = _resolve_person_photo(request.form.get("person_option", "ai"))
+    person_option = request.form.get("person_option", "ai")
+    person_photo_path = _resolve_person_photo(person_option)
+    person_name = _resolve_person_name(person_option)
+    client_name = request.form.get("client_name", "").strip() or None
 
     prompt_template_id = request.form.get("prompt_template_id")
     prompt_template = get_prompt_template(int(prompt_template_id)) if prompt_template_id else None
@@ -152,6 +166,8 @@ def api_upload_vehicle():
             prompt_template_id=prompt_template_id,
             person_photo_path=person_photo_path,
             carfax_path=carfax_path,
+            client_name=client_name,
+            person_name=person_name,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
@@ -194,7 +210,10 @@ def api_vin_generate():
         "cta_text": data.get("cta_text", ""),
     }
 
-    person_photo_path = _resolve_person_photo(data.get("person_option", "ai"))
+    vin_person_option = data.get("person_option", "ai")
+    person_photo_path = _resolve_person_photo(vin_person_option)
+    person_name = _resolve_person_name(vin_person_option)
+    client_name = (data.get("client_name") or "").strip() or None
 
     vin_prompt_template_id = data.get("prompt_template_id")
     prompt_template = get_prompt_template(int(vin_prompt_template_id)) if vin_prompt_template_id else None
@@ -206,6 +225,8 @@ def api_vin_generate():
             prompt_template=prompt_template,
             prompt_template_id=vin_prompt_template_id,
             person_photo_path=person_photo_path,
+            client_name=client_name,
+            person_name=person_name,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
@@ -278,7 +299,10 @@ def api_media_generate_video():
 
     prompt_template_id = data.get("prompt_template_id")
     prompt_template = get_prompt_template(int(prompt_template_id)) if prompt_template_id else None
-    person_photo_path = _resolve_person_photo(data.get("person_option", "ai"))
+    media_person_option = data.get("person_option", "ai")
+    person_photo_path = _resolve_person_photo(media_person_option)
+    person_name = _resolve_person_name(media_person_option)
+    client_name = (data.get("client_name") or "").strip() or None
 
     thread = threading.Thread(
         target=run_upload_pipeline,
@@ -288,6 +312,8 @@ def api_media_generate_video():
             prompt_template_id=prompt_template_id,
             person_photo_path=person_photo_path,
             carfax_path=carfax_path,
+            client_name=client_name,
+            person_name=person_name,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
