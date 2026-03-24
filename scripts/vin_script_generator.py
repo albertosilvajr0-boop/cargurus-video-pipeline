@@ -75,7 +75,14 @@ class VINScriptGenerator:
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model_name = "gemini-2.5-flash"
 
-    def generate(self, vehicle_specs: dict, price: float | int | None = None, prompt_template: dict | None = None) -> dict | None:
+    def generate(
+        self,
+        vehicle_specs: dict,
+        price: float | int | None = None,
+        prompt_template: dict | None = None,
+        client_name: str | None = None,
+        person_name: str | None = None,
+    ) -> dict | None:
         """
         Generate a video script from VIN-decoded vehicle specs.
 
@@ -83,6 +90,8 @@ class VINScriptGenerator:
             vehicle_specs: Dict from vin_decoder.decode_vin()
             price: Optional price to include in the video
             prompt_template: Optional prompt template dict with 'prompt_text' to override default style
+            client_name: Optional client name for personalized greeting
+            person_name: Optional presenter name for personalized greeting
 
         Returns:
             Parsed script dict, or None on failure
@@ -117,6 +126,19 @@ class VINScriptGenerator:
 
         if template_section:
             prompt += template_section
+
+        # Append personalized client greeting if client_name is provided
+        if client_name:
+            presenter = person_name or "your sales representative"
+            prompt += (
+                "\n\n## IMPORTANT: Personalized Client Greeting\n"
+                f"The client's name is **{client_name}** and the presenter is **{presenter}**.\n"
+                "The video script MUST begin with a personalized greeting. Specifically:\n"
+                f'- The `hook` field MUST start with: "Hi {client_name}, I\'m {presenter} with San Antonio Dodge"\n'
+                "- After the greeting, continue with the vehicle hook/attention grabber\n"
+                "- The `veo_prompt` should open with the presenter speaking directly to camera before transitioning to the cinematic vehicle shots\n"
+                "- This personalized greeting takes priority over all other hook guidelines\n"
+            )
 
         console.print("[cyan]Generating video script from VIN specs...[/cyan]")
 

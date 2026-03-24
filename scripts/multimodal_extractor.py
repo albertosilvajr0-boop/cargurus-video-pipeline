@@ -151,13 +151,21 @@ class MultimodalExtractor:
         self._last_error: str | None = None
         logger.info("MultimodalExtractor initialized (model=%s)", self.model_name)
 
-    def extract_and_script(self, image_paths: list[str], prompt_template: dict | None = None) -> dict | None:
+    def extract_and_script(
+        self,
+        image_paths: list[str],
+        prompt_template: dict | None = None,
+        client_name: str | None = None,
+        person_name: str | None = None,
+    ) -> dict | None:
         """
         Send all uploaded images to Gemini in one call.
 
         Args:
             image_paths: List of file paths (photos, sticker, carfax)
             prompt_template: Optional prompt template dict with 'prompt_text' to override default style
+            client_name: Optional client name for personalized greeting
+            person_name: Optional presenter name for personalized greeting
 
         Returns:
             Parsed JSON dict with vehicle details and script, or None on failure
@@ -185,6 +193,19 @@ class MultimodalExtractor:
 
         # Add the text prompt
         prompt_text = EXTRACTION_PROMPT.format(dealer_name=settings.DEALER_NAME)
+
+        # Append personalized client greeting if client_name is provided
+        if client_name:
+            presenter = person_name or "your sales representative"
+            prompt_text += (
+                "\n\n## IMPORTANT: Personalized Client Greeting\n"
+                f"The client's name is **{client_name}** and the presenter is **{presenter}**.\n"
+                "The video script MUST begin with a personalized greeting. Specifically:\n"
+                f'- The `hook` field MUST start with: "Hi {client_name}, I\'m {presenter} with San Antonio Dodge"\n'
+                "- After the greeting, continue with the vehicle hook/attention grabber\n"
+                "- The `veo_prompt` should open with the presenter speaking directly to camera before transitioning to the cinematic vehicle shots\n"
+                "- This personalized greeting takes priority over all other hook guidelines\n"
+            )
 
         # Append video style template if provided
         if prompt_template and prompt_template.get("prompt_text"):
