@@ -7,12 +7,15 @@ no API key required.
 API docs: https://vpic.nhtsa.dot.gov/api/
 """
 
+import logging
+
 import httpx
 from rich.console import Console
 
 from utils.retry import retry_sync
 
 console = Console()
+logger = logging.getLogger("vin_decoder")
 
 NHTSA_DECODE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
 
@@ -133,7 +136,7 @@ def decode_vin(vin: str) -> dict | None:
         try:
             vehicle["year"] = int(vehicle["year"])
         except ValueError:
-            pass
+            logger.warning("Could not parse year as int: %s", vehicle["year"])
 
     # Build vehicle name
     parts = [str(vehicle.get("year", "")), vehicle.get("make", ""), vehicle.get("model", "")]
