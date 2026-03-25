@@ -314,7 +314,14 @@ def _inject_client_greeting(
             f'greeting while ALWAYS ensuring the video ends properly with the final '
             f'shot and closing call-to-action exactly as described in the shot list. '
             f'Every shot in the sequence must still appear — compress or shift their '
-            f'start times as needed, but never cut the final shot or ending.'
+            f'start times as needed, but never cut the final shot or ending. '
+            f'CRITICAL FRAMING RULE: When the presenter references, gestures toward, '
+            f'or points out a specific feature on the vehicle, the camera MUST frame '
+            f'both the presenter AND the exact feature being discussed in the same shot. '
+            f'The feature must be clearly visible and in the correct location on the '
+            f'vehicle — do not let the camera drift or reframe away from what is being '
+            f'referenced. Pointers, callouts, and gestures must land precisely on the '
+            f'correct part of the vehicle as described in the shot list.'
         )
         if client_name.lower() not in current_veo.lower():
             current_veo = current_veo + greeting_directive
