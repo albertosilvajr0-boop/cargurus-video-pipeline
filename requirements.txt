@@ -22,3 +22,10 @@ gunicorn==23.0.0
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.24.0
+
+# Code quality
+ruff==0.9.10
+
+# Security
+flask-limiter==3.12
+flask-wtf==1.2.2

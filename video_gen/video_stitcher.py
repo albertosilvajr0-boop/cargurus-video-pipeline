@@ -128,12 +128,8 @@ class VideoStitcher:
                 "ffmpeg", "-y",
                 "-i", str(temp_concat),
                 "-t", str(TARGET_DURATION),
-                "-vf", "fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5".format(
-                    fade_out=TARGET_DURATION - 0.5
-                ),
-                "-af", "afade=t=in:st=0:d=0.5,afade=t=out:st={fade_out}:d=0.5".format(
-                    fade_out=TARGET_DURATION - 0.5
-                ),
+                "-vf", f"fade=t=in:st=0:d=0.5,fade=t=out:st={TARGET_DURATION - 0.5}:d=0.5",
+                "-af", f"afade=t=in:st=0:d=0.5,afade=t=out:st={TARGET_DURATION - 0.5}:d=0.5",
                 "-c:v", "libx264",
                 "-c:a", "aac",
                 "-preset", "fast",

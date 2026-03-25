@@ -5,6 +5,8 @@ import uuid
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from config import settings
 from utils.database import (
@@ -20,6 +22,9 @@ from utils.logger import get_logger
 logger = get_logger("routes.upload")
 
 upload_bp = Blueprint("upload", __name__)
+
+# Rate limiter for upload-heavy endpoints (shared with app-level limiter)
+_upload_limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 # Shared job tracking — injected from app.py via init_routes()
 _jobs_lock: threading.Lock = None

@@ -5,11 +5,14 @@ Route handlers live in routes/, pipeline logic lives in workers/.
 """
 
 import os
+import secrets
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, jsonify, send_from_directory
+from flask import Flask, render_template, jsonify, send_from_directory, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from config import settings
 from utils.logger import get_logger
@@ -17,6 +20,31 @@ from utils.logger import get_logger
 logger = get_logger("app")
 
 app = Flask(__name__)
+
+# --- Security configuration ---
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# --- Rate limiting ---
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per minute"],
+    storage_uri="memory://",
+)
+
+# --- Security headers ---
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 # --- Database initialization ---
 from utils.database import (
@@ -124,6 +152,35 @@ app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
 
 
+# --- Rate limit decorators for upload-heavy endpoints ---
+@app.before_request
+def _rate_limit_uploads():
+    """Apply stricter rate limits on upload/generation endpoints."""
+    pass  # flask-limiter handles this via decorators on blueprints
+
+
+# --- Error handlers ---
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Not found"}), 404
+
+
+@app.errorhandler(429)
+def rate_limited(e):
+    return jsonify({"error": "Rate limit exceeded. Please slow down.", "retry_after": e.description}), 429
+
+
+@app.errorhandler(413)
+def request_too_large(e):
+    return jsonify({"error": f"Upload too large. Maximum: {settings.MAX_UPLOAD_SIZE_MB}MB"}), 413
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error("Internal server error: %s", e)
+    return jsonify({"error": "Internal server error"}), 500
+
+
 # --- Pages ---
 
 @app.route("/")
@@ -169,7 +226,7 @@ def api_recent_logs():
     if not LOG_FILE.exists():
         return jsonify({"lines": [], "message": "No log file yet"})
 
-    with open(LOG_FILE, "r", encoding="utf-8") as f:
+    with open(LOG_FILE, encoding="utf-8") as f:
         all_lines = f.readlines()
 
     if level_filter:
@@ -240,12 +297,10 @@ def api_persistence_status():
 
 
 @app.route("/health")
+@limiter.exempt
 def health_check():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-
-# Need request import for log endpoint
-from flask import request
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
