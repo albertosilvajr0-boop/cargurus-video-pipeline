@@ -231,6 +231,41 @@ class Pipeline:
         update_vehicle_status(vehicle_id, "error", error_message=error_message)
 
 
+def _inject_client_greeting(result: dict, client_name: str | None, person_name: str | None) -> dict:
+    """Programmatically inject a personalized client greeting into the script.
+
+    Ensures the greeting always appears regardless of what Gemini generated.
+    Modifies the result dict in-place and returns it.
+    """
+    if not client_name:
+        return result
+
+    script = result.get("script")
+    if not script:
+        return result
+
+    presenter = person_name or "your sales representative"
+    greeting = f"Hi {client_name}, I'm {presenter} with San Antonio Dodge."
+
+    # Prepend greeting to the hook (used as script text / caption intro)
+    current_hook = script.get("hook", "")
+    if greeting.lower() not in current_hook.lower():
+        script["hook"] = f"{greeting} {current_hook}"
+
+    # Prepend greeting scene to the veo_prompt so the AI video opens with it
+    current_veo = script.get("veo_prompt", "")
+    greeting_scene = (
+        f'The video opens with {presenter} looking directly into the camera and saying: '
+        f'"{greeting}" The presenter smiles warmly, then the camera smoothly transitions to '
+        f"the vehicle. "
+    )
+    if client_name.lower() not in current_veo.lower():
+        script["veo_prompt"] = greeting_scene + current_veo
+
+    logger.info("Injected client greeting for '%s' (presenter: %s)", client_name, presenter)
+    return result
+
+
 def run_upload_pipeline(
     job_id: str,
     upload_id: str,
@@ -272,6 +307,9 @@ def run_upload_pipeline(
         )
         if not result:
             return
+
+        # Inject personalized client greeting (guaranteed, not relying on Gemini)
+        _inject_client_greeting(result, client_name, person_name)
 
         vehicle_info = result.get("vehicle", {})
         script_info = result.get("script", {})
@@ -383,6 +421,9 @@ def run_vin_pipeline(
         )
         if not result:
             return
+
+        # Inject personalized client greeting (guaranteed, not relying on Gemini)
+        _inject_client_greeting(result, client_name, person_name)
 
         script_info = result.get("script", {})
         upload_id = f"vin_{vin}"
