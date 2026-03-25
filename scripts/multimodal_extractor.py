@@ -200,11 +200,11 @@ class MultimodalExtractor:
             prompt_text += (
                 "\n\n## IMPORTANT: Personalized Client Greeting\n"
                 f"The client's name is **{client_name}** and the presenter is **{presenter}**.\n"
-                "The video script MUST begin with a personalized greeting. Specifically:\n"
+                "The video script MUST include a personalized greeting. Specifically:\n"
                 f'- The `hook` field MUST start with: "Hi {client_name}, I\'m {presenter} with San Antonio Dodge"\n'
-                "- After the greeting, continue with the vehicle hook/attention grabber\n"
-                "- The `veo_prompt` should open with the presenter speaking directly to camera before transitioning to the cinematic vehicle shots\n"
-                "- This personalized greeting takes priority over all other hook guidelines\n"
+                "- In the `veo_prompt`, the presenter should speak this greeting during the FIRST shot — "
+                "do NOT add a separate shot or change any shot-list timing for it. The greeting is spoken "
+                "naturally within the first shot's existing timeframe.\n"
             )
 
         # Append video style template if provided

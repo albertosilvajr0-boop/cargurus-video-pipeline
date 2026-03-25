@@ -303,17 +303,21 @@ def _inject_client_greeting(
         if greeting.lower() not in current_hook.lower():
             script["hook"] = f"{greeting} {current_hook}"
 
-        # Prepend greeting to the veo_prompt so Sora generates the presenter
-        # speaking the greeting out loud at the start of the video
-        greeting_scene = (
-            f'IMPORTANT — THE VIDEO MUST BEGIN WITH SPOKEN DIALOGUE: '
-            f'The presenter looks directly into the camera and says out loud: '
-            f'"{greeting}" '
-            f'The presenter must clearly and audibly speak these exact words at the '
-            f'start of the video before transitioning to the vehicle content. '
+        # Append a greeting directive to the END of the veo_prompt so it doesn't
+        # conflict with shot-list timing from templates.  This tells Sora to
+        # incorporate the greeting into the first shot rather than adding a new one.
+        greeting_directive = (
+            f'\n\nCLIENT GREETING REQUIREMENT: The presenter must look directly into '
+            f'the camera and audibly say: "{greeting}" '
+            f'This greeting should be spoken at the very beginning of the video. '
+            f'Adjust the timing of all other shots accordingly to make room for the '
+            f'greeting while ALWAYS ensuring the video ends properly with the final '
+            f'shot and closing call-to-action exactly as described in the shot list. '
+            f'Every shot in the sequence must still appear — compress or shift their '
+            f'start times as needed, but never cut the final shot or ending.'
         )
         if client_name.lower() not in current_veo.lower():
-            current_veo = greeting_scene + current_veo
+            current_veo = current_veo + greeting_directive
             script["veo_prompt"] = current_veo
 
         logger.info("Injected client greeting for '%s' (presenter: %s)", client_name, presenter)
