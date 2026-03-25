@@ -79,6 +79,17 @@ def _validate_upload_file(file) -> str | None:
     return None
 
 
+def _save_shirt_logo(upload_dir: Path) -> str | None:
+    """Save the shirt_logo file from the request if present. Returns path or None."""
+    logo = request.files.get("shirt_logo")
+    if not logo or not logo.filename:
+        return None
+    ext = Path(logo.filename).suffix.lower() or ".png"
+    logo_path = str(upload_dir / f"shirt_logo{ext}")
+    logo.save(logo_path)
+    return logo_path
+
+
 @upload_bp.route("/api/upload", methods=["POST"])
 def api_upload_vehicle():
     """Upload vehicle photos + optional sticker/carfax, kick off pipeline."""
@@ -154,6 +165,7 @@ def api_upload_vehicle():
     person_photo_path = _resolve_person_photo(person_option)
     person_name = _resolve_person_name(person_option)
     client_name = request.form.get("client_name", "").strip() or None
+    shirt_logo_path = _save_shirt_logo(upload_dir)
 
     prompt_template_id = request.form.get("prompt_template_id")
     prompt_template = get_prompt_template(int(prompt_template_id)) if prompt_template_id else None
@@ -168,6 +180,7 @@ def api_upload_vehicle():
             carfax_path=carfax_path,
             client_name=client_name,
             person_name=person_name,
+            shirt_logo_path=shirt_logo_path,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
@@ -180,10 +193,18 @@ def api_upload_vehicle():
 
 @upload_bp.route("/api/vin", methods=["POST"])
 def api_vin_generate():
-    """Generate a video from just a VIN number."""
+    """Generate a video from just a VIN number.
+
+    Accepts both JSON and FormData (FormData is used when a shirt logo file is attached).
+    """
     from datetime import datetime
 
-    data = request.get_json()
+    # Support both JSON and FormData
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form.to_dict()
+
     if not data or not data.get("vin"):
         return jsonify({"error": "VIN is required"}), 400
 
@@ -191,6 +212,10 @@ def api_vin_generate():
     clean_vin = validate_vin(raw_vin)
     if not clean_vin:
         return jsonify({"error": f"Invalid VIN: {raw_vin}. Must be 17 alphanumeric characters (no I, O, Q)."}), 400
+
+    # Create a directory for VIN uploads (for shirt logo etc.)
+    vin_upload_dir = settings.UPLOADS_DIR / f"vin_{clean_vin}_{uuid.uuid4().hex[:6]}"
+    vin_upload_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = f"vin_{clean_vin}_{uuid.uuid4().hex[:6]}"
 
@@ -203,8 +228,14 @@ def api_vin_generate():
             "started_at": datetime.now().isoformat(),
         }
 
+    # Parse price (could be string from FormData)
+    price_raw = data.get("price")
+    if isinstance(price_raw, str):
+        price_raw = price_raw.strip()
+        price_raw = float(price_raw) if price_raw else None
+
     overrides = {
-        "price": data.get("price"),
+        "price": price_raw,
         "dealer_phone": data.get("dealer_phone", ""),
         "dealer_address": data.get("dealer_address", ""),
         "cta_text": data.get("cta_text", ""),
@@ -214,6 +245,7 @@ def api_vin_generate():
     person_photo_path = _resolve_person_photo(vin_person_option)
     person_name = _resolve_person_name(vin_person_option)
     client_name = (data.get("client_name") or "").strip() or None
+    shirt_logo_path = _save_shirt_logo(vin_upload_dir)
 
     vin_prompt_template_id = data.get("prompt_template_id")
     prompt_template = get_prompt_template(int(vin_prompt_template_id)) if vin_prompt_template_id else None
@@ -227,6 +259,7 @@ def api_vin_generate():
             person_photo_path=person_photo_path,
             client_name=client_name,
             person_name=person_name,
+            shirt_logo_path=shirt_logo_path,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
@@ -253,6 +286,21 @@ def api_vin_decode_only():
         return jsonify({"error": "Could not decode VIN"}), 422
 
     return jsonify(specs)
+
+
+@upload_bp.route("/api/upload-shirt-logo", methods=["POST"])
+def api_upload_shirt_logo():
+    """Upload a shirt logo image and return the saved path."""
+    logo = request.files.get("shirt_logo")
+    if not logo or not logo.filename:
+        return jsonify({"error": "No shirt logo file provided"}), 400
+
+    upload_dir = settings.UPLOADS_DIR / f"logo_{uuid.uuid4().hex[:8]}"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(logo.filename).suffix.lower() or ".png"
+    logo_path = str(upload_dir / f"shirt_logo{ext}")
+    logo.save(logo_path)
+    return jsonify({"path": logo_path})
 
 
 @upload_bp.route("/api/media/generate", methods=["POST"])
@@ -303,6 +351,7 @@ def api_media_generate_video():
     person_photo_path = _resolve_person_photo(media_person_option)
     person_name = _resolve_person_name(media_person_option)
     client_name = (data.get("client_name") or "").strip() or None
+    shirt_logo_path = (data.get("shirt_logo_path") or "").strip() or None
 
     thread = threading.Thread(
         target=run_upload_pipeline,
@@ -314,6 +363,7 @@ def api_media_generate_video():
             carfax_path=carfax_path,
             client_name=client_name,
             person_name=person_name,
+            shirt_logo_path=shirt_logo_path,
             jobs_lock=_jobs_lock,
             active_jobs=_active_jobs,
         ),
