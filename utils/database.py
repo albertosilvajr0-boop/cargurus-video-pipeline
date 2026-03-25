@@ -131,6 +131,66 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
         );
+
+        -- Social sharing events
+        CREATE TABLE IF NOT EXISTS share_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id INTEGER NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'direct',
+            share_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- Video view analytics
+        CREATE TABLE IF NOT EXISTS video_analytics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id INTEGER NOT NULL,
+            view_count INTEGER DEFAULT 1,
+            source TEXT DEFAULT 'direct',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- A/B test definitions
+        CREATE TABLE IF NOT EXISTS ab_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id TEXT UNIQUE NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending',
+            winner TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- A/B test variants
+        CREATE TABLE IF NOT EXISTS ab_test_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id TEXT NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            variant_label TEXT NOT NULL,
+            prompt_template_id INTEGER,
+            video_path TEXT,
+            video_url TEXT,
+            views INTEGER DEFAULT 0,
+            shares INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES ab_tests(test_id),
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- DMS/CRM inventory queue
+        CREATE TABLE IF NOT EXISTS inventory_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vin TEXT NOT NULL,
+            vehicle_data TEXT,
+            source TEXT DEFAULT 'webhook',
+            event TEXT DEFAULT 'inventory.new',
+            status TEXT DEFAULT 'pending',
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP
+        );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
     try:
@@ -290,6 +350,81 @@ def get_all_vehicles() -> list:
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
+
+
+def get_vehicles_paginated(
+    page: int = 1,
+    per_page: int = 25,
+    status: str | None = None,
+    search: str | None = None,
+    sort_by: str = "id",
+    sort_dir: str = "desc",
+) -> dict:
+    """Get vehicles with pagination, filtering, and search.
+
+    Returns:
+        {
+            "vehicles": [...],
+            "total": int,
+            "page": int,
+            "per_page": int,
+            "total_pages": int,
+        }
+    """
+    conn = get_connection()
+
+    # Build WHERE clause
+    conditions = []
+    params = []
+
+    if status:
+        conditions.append("v.status = ?")
+        params.append(status)
+
+    if search:
+        search_term = f"%{search}%"
+        conditions.append(
+            "(v.year LIKE ? OR v.make LIKE ? OR v.model LIKE ? OR v.trim LIKE ? "
+            "OR v.vin LIKE ? OR v.cargurus_id LIKE ?)"
+        )
+        params.extend([search_term] * 6)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # Validate sort column
+    allowed_sort = {"id", "year", "make", "model", "price", "status", "video_generated_at", "updated_at"}
+    if sort_by not in allowed_sort:
+        sort_by = "id"
+    sort_direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+
+    # Count total
+    count_sql = f"SELECT COUNT(*) as total FROM vehicles v {where_clause}"
+    cursor = conn.execute(count_sql, params)
+    total = cursor.fetchone()["total"]
+
+    # Fetch page
+    offset = (page - 1) * per_page
+    data_sql = f"""
+        SELECT v.*, pt.display_name AS prompt_template_name
+        FROM vehicles v
+        LEFT JOIN prompt_templates pt ON v.prompt_template_id = pt.id
+        {where_clause}
+        ORDER BY v.{sort_by} {sort_direction}
+        LIMIT ? OFFSET ?
+    """
+    cursor = conn.execute(data_sql, params + [per_page, offset])
+    vehicles = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    total_pages = (total + per_page - 1) // per_page if per_page > 0 else 1
+
+    return {
+        "vehicles": vehicles,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+    }
 
 
 def get_pipeline_stats() -> dict:

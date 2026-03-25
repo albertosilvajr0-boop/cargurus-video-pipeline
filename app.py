@@ -5,11 +5,14 @@ Route handlers live in routes/, pipeline logic lives in workers/.
 """
 
 import os
+import secrets
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, jsonify, send_from_directory
+from flask import Flask, render_template, jsonify, send_from_directory, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from config import settings
 from utils.logger import get_logger
@@ -17,6 +20,31 @@ from utils.logger import get_logger
 logger = get_logger("app")
 
 app = Flask(__name__)
+
+# --- Security configuration ---
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# --- Rate limiting ---
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per minute"],
+    storage_uri="memory://",
+)
+
+# --- Security headers ---
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 # --- Database initialization ---
 from utils.database import (
@@ -107,14 +135,22 @@ if is_gcs_enabled():
     if _restored_people:
         logger.info("Restored %d people photo files from GCS", _restored_people)
 
-# --- Shared job tracking ---
-_jobs_lock = threading.Lock()
-_active_jobs = {}
+# --- Shared job tracking (Firestore-backed, survives restarts) ---
+from utils.job_store import get_job_store
+_job_store = get_job_store()
+# Legacy compatibility: keep _jobs_lock and _active_jobs for existing code
+_jobs_lock = _job_store.lock
+_active_jobs = _job_store._jobs
 
 # --- Register route blueprints ---
 from routes.upload import upload_bp, init_routes as init_upload_routes
 from routes.vehicles import vehicles_bp, init_routes as init_vehicle_routes
 from routes.media import media_bp
+from routes.events import events_bp
+from routes.batch import batch_bp
+from routes.social import social_bp
+from routes.analytics import analytics_bp
+from routes.integrations import integrations_bp
 
 init_upload_routes(_jobs_lock, _active_jobs)
 init_vehicle_routes(_jobs_lock, _active_jobs)
@@ -122,6 +158,37 @@ init_vehicle_routes(_jobs_lock, _active_jobs)
 app.register_blueprint(upload_bp)
 app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
+app.register_blueprint(events_bp)
+app.register_blueprint(batch_bp)
+app.register_blueprint(social_bp)
+app.register_blueprint(analytics_bp)
+app.register_blueprint(integrations_bp)
+
+# --- Auth routes ---
+from utils.auth import register_auth_routes
+register_auth_routes(app)
+
+
+# --- Error handlers ---
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Not found"}), 404
+
+
+@app.errorhandler(429)
+def rate_limited(e):
+    return jsonify({"error": "Rate limit exceeded. Please slow down.", "retry_after": e.description}), 429
+
+
+@app.errorhandler(413)
+def request_too_large(e):
+    return jsonify({"error": f"Upload too large. Maximum: {settings.MAX_UPLOAD_SIZE_MB}MB"}), 413
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error("Internal server error: %s", e)
+    return jsonify({"error": "Internal server error"}), 500
 
 
 # --- Pages ---
@@ -158,6 +225,11 @@ def serve_upload(filename):
     return send_from_directory(str(settings.UPLOADS_DIR), filename)
 
 
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(str(settings.PROJECT_ROOT / "public"), filename)
+
+
 # --- Diagnostics ---
 
 @app.route("/api/logs")
@@ -169,7 +241,7 @@ def api_recent_logs():
     if not LOG_FILE.exists():
         return jsonify({"lines": [], "message": "No log file yet"})
 
-    with open(LOG_FILE, "r", encoding="utf-8") as f:
+    with open(LOG_FILE, encoding="utf-8") as f:
         all_lines = f.readlines()
 
     if level_filter:
@@ -240,12 +312,10 @@ def api_persistence_status():
 
 
 @app.route("/health")
+@limiter.exempt
 def health_check():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-
-# Need request import for log endpoint
-from flask import request
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

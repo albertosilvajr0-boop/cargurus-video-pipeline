@@ -4,7 +4,7 @@ import asyncio
 import functools
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from rich.console import Console
 

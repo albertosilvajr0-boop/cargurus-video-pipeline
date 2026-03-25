@@ -1,0 +1,38 @@
+# Ruff linter configuration
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "S",     # flake8-bandit (security)
+    "UP",    # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E402",  # module level import not at top (Flask app init pattern)
+    "S101",  # assert used (fine in tests)
+    "S603",  # subprocess call (we need FFmpeg)
+    "S607",  # partial path for subprocess (FFmpeg is system-installed)
+    "S608",  # possible SQL injection (we use field whitelisting)
+    "B008",  # function call in default arg (Flask patterns)
+    "S104",  # binding to all interfaces (intentional for containers)
+    "F401",  # unused import (some imports have side effects)
+    "F541",  # f-string without placeholder (intentional formatting)
+    "F841",  # local variable assigned but not used
+    "I001",  # import sorting (defer to later cleanup)
+    "W291",  # trailing whitespace
+    "W293",  # whitespace before ':'
+    "E741",  # ambiguous variable name
+    "B904",  # raise without from (existing pattern)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S"]  # allow all security warnings in tests
+
+[format]
+quote-style = "double"

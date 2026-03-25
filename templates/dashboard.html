@@ -558,6 +558,8 @@
             <div class="tab" data-tab="videos">My Videos</div>
             <div class="tab" data-tab="costs">Costs</div>
             <div class="tab" data-tab="settings">Branding</div>
+            <div class="tab" data-tab="batch">Bulk Generate</div>
+            <div class="tab" data-tab="analytics">Analytics</div>
             <div class="tab" data-tab="admin">Admin</div>
         </div>
 
@@ -1217,6 +1219,98 @@
                 <span id="brandingSaved" style="color:var(--green);margin-left:12px;font-size:0.85rem;display:none">Saved!</span>
             </div>
         </div>
+        <!-- ========== TAB: Bulk Generate ========== -->
+        <div id="tab-batch" class="tab-content">
+            <div id="batchForm">
+                <div class="form-section" style="margin-top:24px">
+                    <h3>Bulk Video Generation</h3>
+                    <p style="color:var(--muted);font-size:0.85rem;margin-bottom:16px">
+                        Upload a CSV file or paste a list of VINs to generate videos for multiple vehicles.
+                        Videos are processed one at a time to avoid API limits.
+                    </p>
+
+                    <!-- CSV Upload -->
+                    <div class="upload-zone" id="csvUploadZone" style="padding:30px 20px">
+                        <h3>Upload CSV</h3>
+                        <p>Drag & drop a CSV file with VIN numbers (and optional prices)</p>
+                        <p style="color:var(--muted);font-size:0.75rem;margin-top:8px">Format: VIN, Price (one per row)</p>
+                        <input type="file" id="csvFileInput" accept=".csv,.txt,.tsv" style="display:none">
+                    </div>
+                    <div id="csvPreview"></div>
+
+                    <div style="text-align:center;margin:16px 0;color:var(--muted);font-size:0.85rem">— or —</div>
+
+                    <!-- VIN List -->
+                    <div class="form-field">
+                        <label>Paste VINs (one per line)</label>
+                        <textarea id="batchVinList" placeholder="1C4RJFAG5LC123456&#10;3C6TRVEG1ME123456&#10;5YJ3E1EA1PF123456" style="min-height:120px;font-family:monospace"></textarea>
+                    </div>
+                </div>
+
+                <!-- Batch Options -->
+                <div class="form-section">
+                    <h3>Options (apply to all videos)</h3>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>Video Template</label>
+                            <select id="batchTemplateSelect">
+                                <option value="">Default</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>CTA Text</label>
+                            <input type="text" id="batchCTA" placeholder="e.g. Call Today!">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>Phone Override</label>
+                            <input type="text" id="batchPhone" placeholder="{{ dealer_phone or 'Uses branding default' }}">
+                        </div>
+                        <div class="form-field">
+                            <label>Address Override</label>
+                            <input type="text" id="batchAddress" placeholder="{{ dealer_address or 'Uses branding default' }}">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align:center;margin:24px 0">
+                    <button class="btn primary lg" id="batchSubmitBtn" onclick="BatchUI.submit()" disabled>
+                        Start Bulk Generation
+                    </button>
+                    <p style="color:var(--muted);font-size:0.8rem;margin-top:8px">
+                        Videos are processed sequentially (1 at a time) — safe for any batch size
+                    </p>
+                </div>
+            </div>
+
+            <!-- Batch Progress (hidden until processing starts) -->
+            <div id="batchProgress" style="display:none"></div>
+        </div>
+
+        <!-- ========== TAB: Analytics ========== -->
+        <div id="tab-analytics" class="tab-content">
+            <div class="form-section" style="margin-top:24px">
+                <h3>Video Analytics</h3>
+                <p style="color:var(--muted);font-size:0.85rem;margin-bottom:16px">
+                    Track video views, shares, and engagement across your inventory.
+                </p>
+                <div class="stats-grid" id="analyticsStats">
+                    <div class="stat-card"><div class="label">Total Videos</div><div class="value cyan" id="analyticsTotalVideos">-</div></div>
+                    <div class="stat-card"><div class="label">Total Views</div><div class="value green" id="analyticsTotalViews">-</div></div>
+                    <div class="stat-card"><div class="label">Total Shares</div><div class="value yellow" id="analyticsTotalShares">-</div></div>
+                    <div class="stat-card"><div class="label">Avg. Engagement</div><div class="value" style="color:var(--accent)" id="analyticsAvgEngagement">-</div></div>
+                </div>
+                <div id="analyticsContent" style="margin-top:20px">
+                    <div class="empty-state">
+                        <h3>Analytics Coming Soon</h3>
+                        <p>Video view and share tracking will appear here once social integrations are configured.</p>
+                        <p style="margin-top:8px;font-size:0.8rem">Share videos via the My Videos tab to start collecting data.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ========== TAB: Admin ========== -->
         <div id="tab-admin" class="tab-content">
             <div class="branding-section">
@@ -3739,6 +3833,38 @@
                 alert('Backfill failed: ' + e.message);
             }
         }
+    </script>
+
+    <!-- Modular JS components -->
+    <script src="/static/js/sse-client.js"></script>
+    <script src="/static/js/batch-ui.js"></script>
+    <script>
+        // Initialize batch UI when tab is shown
+        document.addEventListener('DOMContentLoaded', function() {
+            BatchUI.init();
+
+            // Load batch templates when batch tab is activated
+            const batchTab = document.querySelector('[data-tab="batch"]');
+            if (batchTab) {
+                batchTab.addEventListener('click', async function() {
+                    const select = document.getElementById('batchTemplateSelect');
+                    if (select && select.options.length <= 1) {
+                        try {
+                            const res = await fetch('/api/prompt-templates');
+                            const templates = await res.json();
+                            templates.forEach(t => {
+                                const opt = document.createElement('option');
+                                opt.value = t.id;
+                                opt.textContent = t.display_name;
+                                select.appendChild(opt);
+                            });
+                        } catch (e) {
+                            console.warn('Failed to load templates for batch:', e);
+                        }
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

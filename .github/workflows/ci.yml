@@ -25,8 +25,11 @@ jobs:
       - name: Check syntax (py_compile)
         run: python -m py_compile app.py main.py config/settings.py
 
+      - name: Lint with ruff
+        run: python -m ruff check .
+
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short || true
+        run: python -m pytest tests/ -v --tb=short
 
   docker-build:
     runs-on: ubuntu-latest
