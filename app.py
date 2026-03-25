@@ -25,12 +25,14 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 app.config["MAX_CONTENT_LENGTH"] = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
-# --- Rate limiting ---
+# --- Rate limiting (disabled in testing) ---
+_testing = os.environ.get("TESTING", "").lower() == "true" or app.config.get("TESTING")
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per minute"],
     storage_uri="memory://",
+    enabled=not _testing,
 )
 
 # --- Security headers ---
