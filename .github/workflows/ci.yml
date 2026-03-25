@@ -9,6 +9,8 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      TESTING: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +30,16 @@ jobs:
       - name: Lint with ruff
         run: python -m ruff check .
 
+      - name: Verify app imports
+        run: |
+          python -c "
+          import os; os.environ['TESTING']='true'
+          import utils.data_persistence as dp; dp._firestore_available = False
+          from app import app; print('App import OK')
+          "
+
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -v --tb=long
 
   docker-build:
     runs-on: ubuntu-latest
