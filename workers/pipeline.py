@@ -230,45 +230,6 @@ class Pipeline:
         """Mark vehicle as error in the database."""
         update_vehicle_status(vehicle_id, "error", error_message=error_message)
 
-    # --- Step: Add TTS greeting audio ---
-
-    def add_greeting_audio(
-        self,
-        final_path: str,
-        client_name: str,
-        person_name: str | None,
-        output_name: str,
-    ) -> str:
-        """Generate a TTS greeting and mix it into the video audio track.
-
-        Returns the path to the video with greeting audio (same as final_path
-        if mixing succeeds, or unchanged final_path on failure).
-        """
-        from utils.tts import generate_greeting_audio, mix_greeting_audio
-
-        self.update_job(progress="Adding personalized greeting audio...")
-        audio_dir = settings.VIDEOS_DIR
-        greeting_path = generate_greeting_audio(client_name, person_name, audio_dir)
-        if not greeting_path:
-            logger.warning("TTS greeting generation failed — video will have no greeting audio")
-            return final_path
-
-        greeted_path = str(settings.VIDEOS_DIR / f"{output_name}_greeted.mp4")
-        result = mix_greeting_audio(final_path, greeting_path, greeted_path)
-
-        # Clean up the greeting audio file
-        Path(greeting_path).unlink(missing_ok=True)
-
-        if result and Path(greeted_path).exists():
-            # Replace the final video with the greeted version
-            Path(final_path).unlink(missing_ok=True)
-            Path(greeted_path).rename(final_path)
-            logger.info("Greeting audio added to video: %s", Path(final_path).name)
-            return final_path
-        else:
-            logger.warning("Audio mixing failed — video will have no greeting audio")
-            return final_path
-
     # --- Step: Prepare reference photo with shirt logo ---
 
     def prepare_reference_with_logo(
@@ -342,11 +303,14 @@ def _inject_client_greeting(
         if greeting.lower() not in current_hook.lower():
             script["hook"] = f"{greeting} {current_hook}"
 
-        # Prepend greeting scene to the veo_prompt so the presenter faces the camera
+        # Prepend greeting to the veo_prompt so Sora generates the presenter
+        # speaking the greeting out loud at the start of the video
         greeting_scene = (
-            f'The video opens with {presenter} looking directly into the camera and saying: '
-            f'"{greeting}" The presenter smiles warmly, then the camera smoothly transitions to '
-            f"the vehicle. "
+            f'IMPORTANT — THE VIDEO MUST BEGIN WITH SPOKEN DIALOGUE: '
+            f'The presenter looks directly into the camera and says out loud: '
+            f'"{greeting}" '
+            f'The presenter must clearly and audibly speak these exact words at the '
+            f'start of the video before transitioning to the vehicle content. '
         )
         if client_name.lower() not in current_veo.lower():
             current_veo = greeting_scene + current_veo
@@ -480,10 +444,6 @@ def run_upload_pipeline(
             pipe.fail_vehicle(vehicle_id, "Overlay compositing failed")
             return
 
-        # Step 5b: Add TTS greeting audio if client name provided
-        if client_name:
-            final_path = pipe.add_greeting_audio(final_path, client_name, person_name, upload_id)
-
         # Step 6: Upload + costs
         video_url = pipe.upload_to_gcs(final_path, clip_path)
         pipe.record_costs(vehicle_id, final_path, video_url)
@@ -589,10 +549,6 @@ def run_vin_pipeline(
         if not final_path:
             pipe.fail_vehicle(vehicle_id, "Overlay compositing failed")
             return
-
-        # Step 5b: Add TTS greeting audio if client name provided
-        if client_name:
-            final_path = pipe.add_greeting_audio(final_path, client_name, person_name, upload_id)
 
         # Step 6: Upload + costs
         video_url = pipe.upload_to_gcs(final_path, clip_path)
