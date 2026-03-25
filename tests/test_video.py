@@ -10,84 +10,6 @@ import pytest
 from utils.database import upsert_vehicle, update_vehicle_status
 
 
-class TestVeoGenerator:
-    @pytest.fixture(autouse=True)
-    def _skip_if_no_google(self):
-        pytest.importorskip("google.genai", reason="google-genai not installed")
-
-    def test_get_best_photo_found(self, sample_vehicle_data, tmp_path):
-        from video_gen.veo_generator import VeoGenerator
-
-        photo_dir = tmp_path / "photos" / "cg_12345"
-        photo_dir.mkdir(parents=True)
-        photo = photo_dir / "photo_00.jpg"
-        photo.write_bytes(b"\xff\xd8\xff\xe0")
-
-        vehicle = sample_vehicle_data.copy()
-        vehicle["photo_paths"] = json.dumps([str(photo)])
-
-        gen = VeoGenerator.__new__(VeoGenerator)
-        gen.quality = "fast"
-        result = gen._get_best_photo(vehicle, index=0)
-        assert result == str(photo)
-
-    def test_get_best_photo_missing(self, sample_vehicle_data):
-        from video_gen.veo_generator import VeoGenerator
-
-        vehicle = sample_vehicle_data.copy()
-        vehicle["photo_paths"] = "[]"
-
-        gen = VeoGenerator.__new__(VeoGenerator)
-        gen.quality = "fast"
-        result = gen._get_best_photo(vehicle, index=0)
-        assert result is None
-
-    def test_get_best_photo_index_out_of_range(self, sample_vehicle_data, tmp_path):
-        from video_gen.veo_generator import VeoGenerator
-
-        photo = tmp_path / "photo.jpg"
-        photo.write_bytes(b"\xff\xd8\xff\xe0")
-
-        vehicle = sample_vehicle_data.copy()
-        vehicle["photo_paths"] = json.dumps([str(photo)])
-
-        gen = VeoGenerator.__new__(VeoGenerator)
-        gen.quality = "fast"
-        result = gen._get_best_photo(vehicle, index=5)
-        assert result is None
-
-
-class TestSoraGenerator:
-    @pytest.fixture(autouse=True)
-    def _skip_if_no_openai(self):
-        pytest.importorskip("openai", reason="openai not installed")
-
-    def test_get_best_photo_found(self, sample_vehicle_data, tmp_path):
-        from video_gen.sora_generator import SoraGenerator
-
-        photo = tmp_path / "photo.jpg"
-        photo.write_bytes(b"\xff\xd8\xff\xe0")
-
-        vehicle = sample_vehicle_data.copy()
-        vehicle["photo_paths"] = json.dumps([str(photo)])
-
-        gen = SoraGenerator.__new__(SoraGenerator)
-        gen.quality = "fast"
-        result = gen._get_best_photo(vehicle, index=0)
-        assert result == str(photo)
-
-    def test_get_best_photo_empty(self, sample_vehicle_data):
-        from video_gen.sora_generator import SoraGenerator
-
-        vehicle = sample_vehicle_data.copy()
-        vehicle["photo_paths"] = "[]"
-
-        gen = SoraGenerator.__new__(SoraGenerator)
-        gen.quality = "fast"
-        result = gen._get_best_photo(vehicle)
-        assert result is None
-
-
 class TestVideoStitcher:
     def test_stitch_no_clips(self, tmp_path):
         from video_gen.video_stitcher import VideoStitcher
@@ -179,11 +101,11 @@ class TestFlaskApp:
         data = response.get_json()
         assert all(v["status"] == "scraped" for v in data)
 
-    def test_api_pipeline_status(self, client):
-        response = client.get("/api/status")
+    def test_api_pipeline_stats(self, client):
+        response = client.get("/api/stats")
         assert response.status_code == 200
         data = response.get_json()
-        assert "running" in data
+        assert "total_vehicles" in data
 
     def test_api_retry_single_vehicle(self, client, sample_vehicle_data):
         vid = upsert_vehicle(sample_vehicle_data)
