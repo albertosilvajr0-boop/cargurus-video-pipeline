@@ -281,10 +281,14 @@ def _inject_client_greeting(
     client_name: str | None,
     person_name: str | None,
     has_shirt_logo: bool = False,
+    has_template: bool = False,
 ) -> dict:
     """Programmatically inject a personalized client greeting into the script.
 
-    Ensures the greeting always appears regardless of what Gemini generated.
+    When a prompt template is used, the template already contains the greeting
+    in its shot list and dialogue timing — so we only inject into the hook/caption
+    and skip modifying the veo_prompt to avoid conflicting instructions.
+
     Modifies the result dict in-place and returns it.
     """
     script = result.get("script")
@@ -303,31 +307,32 @@ def _inject_client_greeting(
         if greeting.lower() not in current_hook.lower():
             script["hook"] = f"{greeting} {current_hook}"
 
-        # Append a greeting directive to the END of the veo_prompt so it doesn't
-        # conflict with shot-list timing from templates.  This tells Sora to
-        # incorporate the greeting into the first shot rather than adding a new one.
-        greeting_directive = (
-            f'\n\nCLIENT GREETING REQUIREMENT: The presenter must look directly into '
-            f'the camera and audibly say: "{greeting}" '
-            f'This greeting should be spoken at the very beginning of the video. '
-            f'Adjust the timing of all other shots accordingly to make room for the '
-            f'greeting while ALWAYS ensuring the video ends properly with the final '
-            f'shot and closing call-to-action exactly as described in the shot list. '
-            f'Every shot in the sequence must still appear — compress or shift their '
-            f'start times as needed, but never cut the final shot or ending. '
-            f'CRITICAL FRAMING RULE: When the presenter references, gestures toward, '
-            f'or points out a specific feature on the vehicle, the camera MUST frame '
-            f'both the presenter AND the exact feature being discussed in the same shot. '
-            f'The feature must be clearly visible and in the correct location on the '
-            f'vehicle — do not let the camera drift or reframe away from what is being '
-            f'referenced. Pointers, callouts, and gestures must land precisely on the '
-            f'correct part of the vehicle as described in the shot list.'
-        )
-        if client_name.lower() not in current_veo.lower():
+        # Only inject greeting into the veo_prompt when NO template is used.
+        # Templates with {client_name}/{salesperson_name} handle the greeting
+        # in their own shot list, dialogue timing, and framing — adding extra
+        # directives here would conflict with the template's instructions.
+        if not has_template and client_name.lower() not in current_veo.lower():
+            greeting_directive = (
+                f'\n\nCLIENT GREETING REQUIREMENT: The presenter must look directly into '
+                f'the camera and audibly say: "{greeting}" '
+                f'This greeting should be spoken at the very beginning of the video. '
+                f'Adjust the timing of all other shots accordingly to make room for the '
+                f'greeting while ALWAYS ensuring the video ends properly with the final '
+                f'shot and closing call-to-action exactly as described in the shot list. '
+                f'Every shot in the sequence must still appear — compress or shift their '
+                f'start times as needed, but never cut the final shot or ending. '
+                f'CRITICAL FRAMING RULE: When the presenter references, gestures toward, '
+                f'or points out a specific feature on the vehicle, the camera MUST frame '
+                f'both the presenter AND the exact feature being discussed in the same shot. '
+                f'The feature must be clearly visible and in the correct location on the '
+                f'vehicle — do not let the camera drift or reframe away from what is being '
+                f'referenced. Pointers, callouts, and gestures must land precisely on the '
+                f'correct part of the vehicle as described in the shot list.'
+            )
             current_veo = current_veo + greeting_directive
             script["veo_prompt"] = current_veo
 
-        logger.info("Injected client greeting for '%s' (presenter: %s)", client_name, presenter)
+        logger.info("Injected client greeting for '%s' (presenter: %s, template: %s)", client_name, presenter, has_template)
 
     # Inject shirt logo description if a logo was uploaded
     if has_shirt_logo and "dealership logo" not in current_veo.lower():
@@ -386,7 +391,7 @@ def run_upload_pipeline(
             return
 
         # Inject personalized client greeting + shirt logo description
-        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path))
+        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path), has_template=bool(prompt_template))
 
         vehicle_info = result.get("vehicle", {})
         script_info = result.get("script", {})
@@ -506,7 +511,7 @@ def run_vin_pipeline(
             return
 
         # Inject personalized client greeting + shirt logo description
-        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path))
+        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path), has_template=bool(prompt_template))
 
         script_info = result.get("script", {})
         upload_id = f"vin_{vin}"

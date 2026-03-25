@@ -99,9 +99,16 @@ class VINScriptGenerator:
         price_line = f"- **Price**: ${price:,.0f}" if price and price > 0 else ""
 
         # If a prompt template is provided, inject it as additional style guidance
+        has_template = prompt_template and prompt_template.get("prompt_text")
         template_section = ""
-        if prompt_template and prompt_template.get("prompt_text"):
-            template_text = prompt_template["prompt_text"].replace("{dealer_phone}", settings.DEALER_PHONE or "")
+        if has_template:
+            template_text = prompt_template["prompt_text"]
+            # Substitute template variables
+            template_text = template_text.replace("{dealer_phone}", settings.DEALER_PHONE or "")
+            if client_name:
+                template_text = template_text.replace("{client_name}", client_name)
+            if person_name:
+                template_text = template_text.replace("{salesperson_name}", person_name)
             template_section = (
                 "\n\n## Video Style Template\n"
                 "IMPORTANT: Override the default veo_prompt style with the following production template. "
@@ -128,7 +135,8 @@ class VINScriptGenerator:
             prompt += template_section
 
         # Append personalized client greeting if client_name is provided
-        if client_name:
+        # BUT only if no template is being used — templates handle greeting in their own shot list.
+        if client_name and not has_template:
             presenter = person_name or "your sales representative"
             prompt += (
                 "\n\n## IMPORTANT: Personalized Client Greeting\n"
