@@ -459,6 +459,60 @@
         }
         .empty-state h3 { color: var(--text); margin-bottom: 8px; }
 
+        /* Training Library */
+        .training-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .training-section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 18px; cursor: pointer; user-select: none;
+            transition: background 0.2s;
+        }
+        .training-section-header:hover { background: var(--surface2); }
+        .training-section-header h3 { font-size: 1rem; display: flex; align-items: center; gap: 8px; }
+        .training-section-header .section-meta { color: var(--muted); font-size: 0.8rem; display: flex; gap: 12px; align-items: center; }
+        .section-progress { width: 80px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+        .section-progress-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s; }
+        .training-section-body { border-top: 1px solid var(--border); }
+        .training-video-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+            border-bottom: 1px solid var(--border); transition: background 0.15s; cursor: pointer;
+        }
+        .training-video-item:last-child { border-bottom: none; }
+        .training-video-item:hover { background: var(--surface2); }
+        .training-video-item.watched { opacity: 0.7; }
+        .tv-check { width: 22px; height: 22px; border: 2px solid var(--border); border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; transition: all 0.2s; }
+        .tv-check.done { border-color: var(--green); background: var(--green); color: #000; }
+        .tv-info { flex: 1; min-width: 0; }
+        .tv-title { font-size: 0.9rem; font-weight: 500; }
+        .tv-desc { color: var(--muted); font-size: 0.8rem; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tv-badges { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+        .tv-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+        .tv-badge.beginner { background: #1a3a2a; color: var(--green); }
+        .tv-badge.intermediate { background: #3a3a1a; color: var(--yellow); }
+        .tv-badge.advanced { background: #3a1a1a; color: var(--red); }
+        .tv-badge.duration { background: var(--surface2); color: var(--muted); }
+        .tv-badge.quiz { background: #1a2a3a; color: var(--cyan); }
+        .tv-actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .tv-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 4px; border-radius: 4px; transition: all 0.15s; }
+        .tv-action-btn:hover { color: var(--text); background: var(--surface2); }
+        .tv-action-btn.fav-active { color: var(--yellow); }
+
+        /* Training Video Detail Modal */
+        .tv-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; padding: 20px;
+        }
+        .tv-modal-overlay.active { display: flex; }
+        .tv-modal {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+            max-width: 700px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 28px;
+        }
+        .tv-modal h2 { font-size: 1.2rem; margin-bottom: 16px; }
+
         @media (max-width: 640px) {
             .form-row { grid-template-columns: 1fr; }
             .video-actions { flex-direction: column; }
@@ -558,6 +612,7 @@
             <div class="tab" data-tab="videos">My Videos</div>
             <div class="tab" data-tab="costs">Costs</div>
             <div class="tab" data-tab="settings">Branding</div>
+            <div class="tab" data-tab="training">Training</div>
             <div class="tab" data-tab="admin">Admin</div>
         </div>
 
@@ -1204,6 +1259,78 @@
                 <span id="brandingSaved" style="color:var(--green);margin-left:12px;font-size:0.85rem;display:none">Saved!</span>
             </div>
         </div>
+        <!-- ========== TAB: Training ========== -->
+        <div id="tab-training" class="tab-content">
+            <div style="margin-top:24px">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px">
+                    <div>
+                        <h2 style="font-size:1.3rem">Video Training Library</h2>
+                        <p style="color:var(--yellow);font-size:0.85rem;margin-top:2px">Under Construction — Content is being reviewed</p>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <!-- User Selector -->
+                        <select id="trainingUserSelect" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:0.85rem">
+                            <option value="">Select your name...</option>
+                        </select>
+                        <!-- View Toggle -->
+                        <button class="btn" onclick="toggleTrainingView('library')" id="btnViewLibrary" style="font-size:0.8rem;padding:4px 12px;background:var(--accent);color:#fff">Library</button>
+                        <button class="btn" onclick="toggleTrainingView('leaderboard')" id="btnViewLeaderboard" style="font-size:0.8rem;padding:4px 12px">Leaderboard</button>
+                        <button class="btn" onclick="toggleTrainingView('manager')" id="btnViewManager" style="font-size:0.8rem;padding:4px 12px">Manager</button>
+                    </div>
+                </div>
+
+                <!-- Overall Progress Bar -->
+                <div id="trainingProgressBar" style="background:var(--surface2);border-radius:8px;height:28px;margin-bottom:16px;overflow:hidden;position:relative;display:none">
+                    <div id="trainingProgressFill" style="background:linear-gradient(90deg,var(--accent),var(--green));height:100%;border-radius:8px;transition:width 0.5s;width:0%"></div>
+                    <span id="trainingProgressText" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:0.8rem;font-weight:600"></span>
+                </div>
+
+                <!-- Search / Filter -->
+                <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+                    <input type="text" id="trainingSearch" placeholder="Search videos..." oninput="filterTrainingVideos()" style="flex:1;min-width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:0.9rem">
+                    <select id="trainingDiffFilter" onchange="filterTrainingVideos()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.85rem">
+                        <option value="">All Levels</option>
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                    </select>
+                    <label style="display:flex;align-items:center;gap:4px;color:var(--muted);font-size:0.85rem;cursor:pointer">
+                        <input type="checkbox" id="trainingFavFilter" onchange="filterTrainingVideos()"> Favorites
+                    </label>
+                </div>
+
+                <!-- Library View -->
+                <div id="trainingLibraryView">
+                    <div id="trainingSections" style="display:flex;flex-direction:column;gap:12px">
+                        <p style="color:var(--muted)">Loading training library...</p>
+                    </div>
+                    <!-- Admin: Add Section -->
+                    <div class="form-section" style="margin-top:24px;border-color:var(--accent)">
+                        <h3 style="font-size:0.95rem">Add Section</h3>
+                        <div style="display:flex;gap:8px;margin-top:8px">
+                            <input type="text" id="newSectionTitle" placeholder="Section title..." style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.85rem">
+                            <button class="btn primary" onclick="addTrainingSection()" style="font-size:0.85rem">Add</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Leaderboard View -->
+                <div id="trainingLeaderboardView" style="display:none">
+                    <div class="form-section">
+                        <h3 style="margin-bottom:12px">Training Leaderboard</h3>
+                        <div id="leaderboardContent"><p style="color:var(--muted)">Loading...</p></div>
+                    </div>
+                </div>
+
+                <!-- Manager Dashboard View -->
+                <div id="trainingManagerView" style="display:none">
+                    <div class="form-section">
+                        <h3 style="margin-bottom:12px">Team Training Overview</h3>
+                        <div id="managerDashContent"><p style="color:var(--muted)">Loading...</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- ========== TAB: Admin ========== -->
         <div id="tab-admin" class="tab-content">
             <div class="branding-section">
@@ -1244,6 +1371,79 @@
         </div>
     </div>
 
+    <!-- Training Video Detail Modal -->
+    <div class="tv-modal-overlay" id="tvDetailModal" onclick="if(event.target===this)closeTvModal()">
+        <div class="tv-modal">
+            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px">
+                <h2 id="tvModalTitle" style="flex:1;margin:0"></h2>
+                <button onclick="closeTvModal()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;padding:0 0 0 12px">&times;</button>
+            </div>
+            <!-- Video Embed -->
+            <div id="tvModalEmbed" style="margin-bottom:16px;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:16/9"></div>
+            <!-- Meta -->
+            <div id="tvModalMeta" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap"></div>
+            <!-- Description -->
+            <p id="tvModalDesc" style="color:var(--muted);font-size:0.9rem;margin-bottom:20px;line-height:1.6"></p>
+            <!-- Actions -->
+            <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+                <button class="btn primary" id="tvModalWatchBtn" onclick="toggleWatchFromModal()" style="font-size:0.85rem">Mark as Watched</button>
+                <button class="btn" id="tvModalFavBtn" onclick="toggleFavFromModal()" style="font-size:0.85rem">Favorite</button>
+            </div>
+            <!-- Notes -->
+            <div style="margin-bottom:20px">
+                <h3 style="font-size:0.95rem;margin-bottom:8px">My Notes</h3>
+                <textarea id="tvModalNotes" placeholder="Write your notes about this video..." rows="3" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px;font-size:0.85rem;resize:vertical"></textarea>
+                <button class="btn" onclick="saveTvNote()" style="margin-top:6px;font-size:0.8rem">Save Notes</button>
+                <span id="tvNotesSaved" style="color:var(--green);font-size:0.8rem;margin-left:8px;display:none">Saved!</span>
+            </div>
+            <!-- Quiz -->
+            <div id="tvModalQuiz" style="display:none">
+                <h3 style="font-size:0.95rem;margin-bottom:12px">Knowledge Check</h3>
+                <div id="tvQuizContent"></div>
+                <div id="tvQuizResult" style="margin-top:12px;display:none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Training Admin: Add Video Modal -->
+    <div class="tv-modal-overlay" id="tvAddVideoModal" onclick="if(event.target===this)closeAddVideoModal()">
+        <div class="tv-modal" style="max-width:550px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h2 style="margin:0" id="addVideoModalTitle">Add Video</h2>
+                <button onclick="closeAddVideoModal()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer">&times;</button>
+            </div>
+            <input type="hidden" id="addVideoSectionId">
+            <input type="hidden" id="editVideoId">
+            <div class="form-field" style="margin-bottom:10px">
+                <label style="font-size:0.85rem">Title</label>
+                <input type="text" id="addVideoTitle" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;width:100%;font-size:0.85rem">
+            </div>
+            <div class="form-field" style="margin-bottom:10px">
+                <label style="font-size:0.85rem">YouTube URL</label>
+                <input type="text" id="addVideoUrl" placeholder="https://youtube.com/watch?v=..." style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;width:100%;font-size:0.85rem">
+            </div>
+            <div class="form-field" style="margin-bottom:10px">
+                <label style="font-size:0.85rem">Description</label>
+                <textarea id="addVideoDesc" rows="2" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.85rem;resize:vertical"></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div class="form-field">
+                    <label style="font-size:0.85rem">Duration</label>
+                    <input type="text" id="addVideoDuration" placeholder="e.g. 12 min" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;width:100%;font-size:0.85rem">
+                </div>
+                <div class="form-field">
+                    <label style="font-size:0.85rem">Difficulty</label>
+                    <select id="addVideoDifficulty" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;width:100%;font-size:0.85rem">
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn primary" onclick="saveTrainingVideo()" style="font-size:0.85rem">Save Video</button>
+        </div>
+    </div>
+
     <footer>
         <div class="container">
             Vehicle Video Pipeline &mdash; Silva Consulting Group
@@ -1261,6 +1461,7 @@
             if (tabName === 'media') loadMediaLibrary();
             if (tabName === 'videos') refreshVideosTab();
             if (tabName === 'costs') loadCostsTab();
+            if (tabName === 'training') loadTrainingLibrary();
             if (tabName === 'admin') loadPromptTemplates();
             try { localStorage.setItem('vp_activeTab', tabName); } catch(e) {}
         }
@@ -3695,6 +3896,546 @@
             } catch (e) {
                 alert('Backfill failed: ' + e.message);
             }
+        }
+        // ==================== VIDEO TRAINING LIBRARY ====================
+        let _trainingSections = [];
+        let _trainingUser = null; // {id, name}
+        let _userWatched = new Set();
+        let _userFavorites = new Set();
+        let _userNotes = {};
+        let _userQuizResults = {};
+        let _collapsedSections = new Set();
+        let _currentModalVideo = null;
+
+        async function loadTrainingLibrary() {
+            // Load people for user selector
+            try {
+                const people = await (await fetch('/api/training/people')).json();
+                const sel = document.getElementById('trainingUserSelect');
+                const prev = sel.value;
+                sel.innerHTML = '<option value="">Select your name...</option>';
+                people.forEach(p => {
+                    sel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+                });
+                if (prev) sel.value = prev;
+                // Restore saved user
+                const savedUser = localStorage.getItem('training_user_id');
+                if (savedUser && !sel.value) {
+                    sel.value = savedUser;
+                }
+                if (sel.value) {
+                    _trainingUser = { id: parseInt(sel.value), name: sel.options[sel.selectedIndex].text };
+                    await loadUserTrainingStatus();
+                }
+            } catch (e) { console.error('Failed to load people:', e); }
+
+            // Load sections
+            try {
+                _trainingSections = await (await fetch('/api/training/sections')).json();
+                renderTrainingSections();
+            } catch (e) {
+                document.getElementById('trainingSections').innerHTML =
+                    '<p style="color:var(--red)">Failed to load training library.</p>';
+            }
+        }
+
+        document.getElementById('trainingUserSelect').addEventListener('change', async function() {
+            if (this.value) {
+                _trainingUser = { id: parseInt(this.value), name: this.options[this.selectedIndex].text };
+                localStorage.setItem('training_user_id', this.value);
+                await loadUserTrainingStatus();
+            } else {
+                _trainingUser = null;
+                _userWatched = new Set();
+                _userFavorites = new Set();
+                _userNotes = {};
+                _userQuizResults = {};
+                localStorage.removeItem('training_user_id');
+            }
+            renderTrainingSections();
+        });
+
+        async function loadUserTrainingStatus() {
+            if (!_trainingUser) return;
+            try {
+                const data = await (await fetch(`/api/training/user/${_trainingUser.id}/status`)).json();
+                _userWatched = new Set(data.watched);
+                _userFavorites = new Set(data.favorites);
+                _userNotes = data.notes || {};
+                _userQuizResults = data.quiz_results || {};
+            } catch (e) { console.error('Failed to load user status:', e); }
+        }
+
+        function renderTrainingSections() {
+            const container = document.getElementById('trainingSections');
+            if (!_trainingSections.length) {
+                container.innerHTML = '<div class="empty-state"><h3>No Training Sections Yet</h3><p>Add a section below to get started.</p></div>';
+                updateOverallProgress();
+                return;
+            }
+
+            const search = document.getElementById('trainingSearch').value.toLowerCase();
+            const diffFilter = document.getElementById('trainingDiffFilter').value;
+            const favFilter = document.getElementById('trainingFavFilter').checked;
+
+            let html = '';
+            _trainingSections.forEach(sec => {
+                let videos = sec.videos || [];
+
+                // Apply filters
+                let filtered = videos.filter(v => {
+                    if (search && !v.title.toLowerCase().includes(search) && !v.description.toLowerCase().includes(search)) return false;
+                    if (diffFilter && v.difficulty !== diffFilter) return false;
+                    if (favFilter && !_userFavorites.has(v.id)) return false;
+                    return true;
+                });
+
+                const watchedInSection = videos.filter(v => _userWatched.has(v.id)).length;
+                const totalInSection = videos.length;
+                const progressPct = totalInSection ? Math.round(watchedInSection / totalInSection * 100) : 0;
+                const collapsed = _collapsedSections.has(sec.id);
+
+                html += `<div class="training-section" data-section-id="${sec.id}">
+                    <div class="training-section-header" onclick="toggleSectionCollapse(${sec.id})">
+                        <h3><span style="transition:transform 0.2s;display:inline-block;transform:rotate(${collapsed ? '0' : '90'}deg)">&#9654;</span> ${esc(sec.title)}</h3>
+                        <div class="section-meta">
+                            <span>${watchedInSection}/${totalInSection} watched</span>
+                            <div class="section-progress"><div class="section-progress-fill" style="width:${progressPct}%"></div></div>
+                            <button class="tv-action-btn" onclick="event.stopPropagation();editSection(${sec.id},'${esc(sec.title)}')" title="Edit">&#9998;</button>
+                            <button class="tv-action-btn" onclick="event.stopPropagation();deleteSection(${sec.id})" title="Delete">&#128465;</button>
+                            <button class="tv-action-btn" onclick="event.stopPropagation();openAddVideoModal(${sec.id})" title="Add Video" style="color:var(--accent)">+</button>
+                        </div>
+                    </div>`;
+
+                if (!collapsed) {
+                    html += `<div class="training-section-body">`;
+                    if (filtered.length === 0) {
+                        html += `<div style="padding:16px 18px;color:var(--muted);font-size:0.85rem">${videos.length === 0 ? 'No videos in this section yet.' : 'No videos match your filters.'}</div>`;
+                    } else {
+                        filtered.forEach(v => {
+                            const isWatched = _userWatched.has(v.id);
+                            const isFav = _userFavorites.has(v.id);
+                            const quiz = v.quiz_json ? JSON.parse(v.quiz_json || '[]') : [];
+                            html += `<div class="training-video-item ${isWatched ? 'watched' : ''}" onclick="openVideoDetail(${v.id})">
+                                <div class="tv-check ${isWatched ? 'done' : ''}" onclick="event.stopPropagation();toggleWatch(${v.id})" title="Toggle watched">
+                                    ${isWatched ? '&#10003;' : ''}
+                                </div>
+                                <div class="tv-info">
+                                    <div class="tv-title">${esc(v.title)}</div>
+                                    ${v.description ? `<div class="tv-desc">${esc(v.description)}</div>` : ''}
+                                </div>
+                                <div class="tv-badges">
+                                    <span class="tv-badge ${v.difficulty}">${v.difficulty}</span>
+                                    ${v.duration ? `<span class="tv-badge duration">${esc(v.duration)}</span>` : ''}
+                                    ${quiz.length ? `<span class="tv-badge quiz">Quiz</span>` : ''}
+                                </div>
+                                <div class="tv-actions">
+                                    <button class="tv-action-btn ${isFav ? 'fav-active' : ''}" onclick="event.stopPropagation();toggleFav(${v.id})" title="Favorite">
+                                        ${isFav ? '&#9733;' : '&#9734;'}
+                                    </button>
+                                    <button class="tv-action-btn" onclick="event.stopPropagation();openEditVideoModal(${v.id})" title="Edit">&#9998;</button>
+                                    <button class="tv-action-btn" onclick="event.stopPropagation();deleteVideo(${v.id})" title="Delete">&#128465;</button>
+                                </div>
+                            </div>`;
+                        });
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            });
+            container.innerHTML = html;
+            updateOverallProgress();
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s || '';
+            return d.innerHTML;
+        }
+
+        function updateOverallProgress() {
+            const bar = document.getElementById('trainingProgressBar');
+            const fill = document.getElementById('trainingProgressFill');
+            const text = document.getElementById('trainingProgressText');
+            if (!_trainingUser) { bar.style.display = 'none'; return; }
+            let total = 0;
+            _trainingSections.forEach(s => total += (s.videos || []).length);
+            if (!total) { bar.style.display = 'none'; return; }
+            bar.style.display = 'block';
+            const pct = Math.round(_userWatched.size / total * 100);
+            fill.style.width = pct + '%';
+            text.textContent = `${_userWatched.size}/${total} videos watched (${pct}%)`;
+        }
+
+        function toggleSectionCollapse(sectionId) {
+            if (_collapsedSections.has(sectionId)) _collapsedSections.delete(sectionId);
+            else _collapsedSections.add(sectionId);
+            renderTrainingSections();
+        }
+
+        function filterTrainingVideos() {
+            renderTrainingSections();
+        }
+
+        // --- Watch / Favorite Toggles ---
+        async function toggleWatch(videoId) {
+            if (!_trainingUser) { alert('Please select your name first.'); return; }
+            try {
+                const res = await fetch(`/api/training/user/${_trainingUser.id}/watch/${videoId}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.watched) _userWatched.add(videoId); else _userWatched.delete(videoId);
+                renderTrainingSections();
+            } catch (e) { alert('Failed to toggle watch status.'); }
+        }
+
+        async function toggleFav(videoId) {
+            if (!_trainingUser) { alert('Please select your name first.'); return; }
+            try {
+                const res = await fetch(`/api/training/user/${_trainingUser.id}/favorite/${videoId}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.favorited) _userFavorites.add(videoId); else _userFavorites.delete(videoId);
+                renderTrainingSections();
+            } catch (e) { alert('Failed to toggle favorite.'); }
+        }
+
+        // --- Video Detail Modal ---
+        function findVideo(videoId) {
+            for (const sec of _trainingSections) {
+                for (const v of (sec.videos || [])) {
+                    if (v.id === videoId) return v;
+                }
+            }
+            return null;
+        }
+
+        function getYouTubeId(url) {
+            if (!url) return null;
+            const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+            return m ? m[1] : null;
+        }
+
+        function openVideoDetail(videoId) {
+            const v = findVideo(videoId);
+            if (!v) return;
+            _currentModalVideo = v;
+
+            document.getElementById('tvModalTitle').textContent = v.title;
+            document.getElementById('tvModalDesc').textContent = v.description || 'No description available.';
+
+            // Embed
+            const embedDiv = document.getElementById('tvModalEmbed');
+            const ytId = getYouTubeId(v.url);
+            if (ytId) {
+                embedDiv.innerHTML = `<iframe width="100%" height="100%" style="aspect-ratio:16/9;border:none" src="https://www.youtube.com/embed/${ytId}" allowfullscreen></iframe>`;
+            } else if (v.url) {
+                embedDiv.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;min-height:200px"><a href="${esc(v.url)}" target="_blank" class="btn primary" style="font-size:0.9rem">Open Video</a></div>`;
+            } else {
+                embedDiv.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;min-height:200px;color:var(--muted)">No video URL set</div>`;
+            }
+
+            // Meta badges
+            let metaHtml = `<span class="tv-badge ${v.difficulty}">${v.difficulty}</span>`;
+            if (v.duration) metaHtml += `<span class="tv-badge duration">${esc(v.duration)}</span>`;
+            document.getElementById('tvModalMeta').innerHTML = metaHtml;
+
+            // Watch/fav buttons
+            const isWatched = _userWatched.has(videoId);
+            const isFav = _userFavorites.has(videoId);
+            document.getElementById('tvModalWatchBtn').textContent = isWatched ? 'Unmark as Watched' : 'Mark as Watched';
+            document.getElementById('tvModalWatchBtn').style.background = isWatched ? 'var(--surface2)' : '';
+            document.getElementById('tvModalFavBtn').textContent = isFav ? 'Unfavorite' : 'Favorite';
+
+            // Notes
+            document.getElementById('tvModalNotes').value = _userNotes[videoId] || '';
+            document.getElementById('tvNotesSaved').style.display = 'none';
+
+            // Quiz
+            const quiz = JSON.parse(v.quiz_json || '[]');
+            const quizDiv = document.getElementById('tvModalQuiz');
+            const quizContent = document.getElementById('tvQuizContent');
+            const quizResult = document.getElementById('tvQuizResult');
+            quizResult.style.display = 'none';
+
+            if (quiz.length > 0) {
+                quizDiv.style.display = 'block';
+                let qhtml = '';
+                quiz.forEach((q, qi) => {
+                    qhtml += `<div style="margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:8px">
+                        <p style="font-weight:500;margin-bottom:8px">${qi + 1}. ${esc(q.question)}</p>`;
+                    q.options.forEach((opt, oi) => {
+                        qhtml += `<label style="display:block;padding:4px 0;cursor:pointer;font-size:0.85rem">
+                            <input type="radio" name="quiz_q${qi}" value="${oi}"> ${esc(opt)}
+                        </label>`;
+                    });
+                    qhtml += `</div>`;
+                });
+                qhtml += `<button class="btn primary" onclick="submitQuiz()" style="font-size:0.85rem">Submit Answers</button>`;
+                // Show previous best
+                const prevResult = _userQuizResults[videoId];
+                if (prevResult) {
+                    qhtml += `<span style="color:var(--muted);font-size:0.8rem;margin-left:12px">Previous best: ${prevResult.score}/${prevResult.total}</span>`;
+                }
+                quizContent.innerHTML = qhtml;
+            } else {
+                quizDiv.style.display = 'none';
+            }
+
+            document.getElementById('tvDetailModal').classList.add('active');
+        }
+
+        function closeTvModal() {
+            document.getElementById('tvDetailModal').classList.remove('active');
+            // Stop any playing video
+            document.getElementById('tvModalEmbed').innerHTML = '';
+            _currentModalVideo = null;
+        }
+
+        async function toggleWatchFromModal() {
+            if (!_currentModalVideo) return;
+            await toggleWatch(_currentModalVideo.id);
+            // Update modal buttons
+            const isWatched = _userWatched.has(_currentModalVideo.id);
+            document.getElementById('tvModalWatchBtn').textContent = isWatched ? 'Unmark as Watched' : 'Mark as Watched';
+            document.getElementById('tvModalWatchBtn').style.background = isWatched ? 'var(--surface2)' : '';
+        }
+
+        async function toggleFavFromModal() {
+            if (!_currentModalVideo) return;
+            await toggleFav(_currentModalVideo.id);
+            const isFav = _userFavorites.has(_currentModalVideo.id);
+            document.getElementById('tvModalFavBtn').textContent = isFav ? 'Unfavorite' : 'Favorite';
+        }
+
+        async function saveTvNote() {
+            if (!_trainingUser) { alert('Please select your name first.'); return; }
+            if (!_currentModalVideo) return;
+            const note = document.getElementById('tvModalNotes').value;
+            try {
+                await fetch(`/api/training/user/${_trainingUser.id}/note/${_currentModalVideo.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ note })
+                });
+                _userNotes[_currentModalVideo.id] = note;
+                const saved = document.getElementById('tvNotesSaved');
+                saved.style.display = 'inline';
+                setTimeout(() => saved.style.display = 'none', 2000);
+            } catch (e) { alert('Failed to save note.'); }
+        }
+
+        async function submitQuiz() {
+            if (!_trainingUser) { alert('Please select your name first.'); return; }
+            if (!_currentModalVideo) return;
+            const quiz = JSON.parse(_currentModalVideo.quiz_json || '[]');
+            if (!quiz.length) return;
+
+            let score = 0;
+            quiz.forEach((q, qi) => {
+                const selected = document.querySelector(`input[name="quiz_q${qi}"]:checked`);
+                if (selected && parseInt(selected.value) === q.answer) score++;
+            });
+
+            try {
+                await fetch(`/api/training/user/${_trainingUser.id}/quiz/${_currentModalVideo.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ score, total: quiz.length })
+                });
+                const prev = _userQuizResults[_currentModalVideo.id];
+                if (!prev || score > prev.score) {
+                    _userQuizResults[_currentModalVideo.id] = { score, total: quiz.length };
+                }
+            } catch (e) { /* ignore */ }
+
+            const resultDiv = document.getElementById('tvQuizResult');
+            const pct = Math.round(score / quiz.length * 100);
+            const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
+            resultDiv.innerHTML = `<div style="padding:12px;background:var(--surface2);border-radius:8px;border-left:3px solid ${color}">
+                <span style="font-weight:600;font-size:1.1rem;color:${color}">${score}/${quiz.length}</span>
+                <span style="color:var(--muted);margin-left:8px">(${pct}%)</span>
+                ${pct >= 80 ? ' — Great job!' : pct >= 50 ? ' — Good effort, review and try again!' : ' — Review the video and try again.'}
+            </div>`;
+            resultDiv.style.display = 'block';
+        }
+
+        // --- Admin: Add/Edit Section ---
+        async function addTrainingSection() {
+            const input = document.getElementById('newSectionTitle');
+            const title = input.value.trim();
+            if (!title) return;
+            try {
+                await fetch('/api/training/sections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                input.value = '';
+                await loadTrainingLibrary();
+            } catch (e) { alert('Failed to add section.'); }
+        }
+
+        async function editSection(id, currentTitle) {
+            const newTitle = prompt('Edit section title:', currentTitle);
+            if (!newTitle || newTitle === currentTitle) return;
+            try {
+                await fetch(`/api/training/sections/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: newTitle })
+                });
+                await loadTrainingLibrary();
+            } catch (e) { alert('Failed to update section.'); }
+        }
+
+        async function deleteSection(id) {
+            if (!confirm('Delete this section and all its videos?')) return;
+            try {
+                await fetch(`/api/training/sections/${id}`, { method: 'DELETE' });
+                await loadTrainingLibrary();
+            } catch (e) { alert('Failed to delete section.'); }
+        }
+
+        // --- Admin: Add/Edit Video ---
+        function openAddVideoModal(sectionId) {
+            document.getElementById('addVideoSectionId').value = sectionId;
+            document.getElementById('editVideoId').value = '';
+            document.getElementById('addVideoTitle').value = '';
+            document.getElementById('addVideoUrl').value = '';
+            document.getElementById('addVideoDesc').value = '';
+            document.getElementById('addVideoDuration').value = '';
+            document.getElementById('addVideoDifficulty').value = 'beginner';
+            document.getElementById('addVideoModalTitle').textContent = 'Add Video';
+            document.getElementById('tvAddVideoModal').classList.add('active');
+        }
+
+        function openEditVideoModal(videoId) {
+            const v = findVideo(videoId);
+            if (!v) return;
+            document.getElementById('addVideoSectionId').value = v.section_id;
+            document.getElementById('editVideoId').value = v.id;
+            document.getElementById('addVideoTitle').value = v.title;
+            document.getElementById('addVideoUrl').value = v.url;
+            document.getElementById('addVideoDesc').value = v.description;
+            document.getElementById('addVideoDuration').value = v.duration;
+            document.getElementById('addVideoDifficulty').value = v.difficulty;
+            document.getElementById('addVideoModalTitle').textContent = 'Edit Video';
+            document.getElementById('tvAddVideoModal').classList.add('active');
+        }
+
+        function closeAddVideoModal() {
+            document.getElementById('tvAddVideoModal').classList.remove('active');
+        }
+
+        async function saveTrainingVideo() {
+            const editId = document.getElementById('editVideoId').value;
+            const payload = {
+                section_id: parseInt(document.getElementById('addVideoSectionId').value),
+                title: document.getElementById('addVideoTitle').value.trim(),
+                url: document.getElementById('addVideoUrl').value.trim(),
+                description: document.getElementById('addVideoDesc').value.trim(),
+                duration: document.getElementById('addVideoDuration').value.trim(),
+                difficulty: document.getElementById('addVideoDifficulty').value,
+            };
+            if (!payload.title) { alert('Title is required.'); return; }
+
+            try {
+                if (editId) {
+                    await fetch(`/api/training/videos/${editId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    await fetch('/api/training/videos', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                }
+                closeAddVideoModal();
+                await loadTrainingLibrary();
+            } catch (e) { alert('Failed to save video.'); }
+        }
+
+        async function deleteVideo(videoId) {
+            if (!confirm('Delete this video?')) return;
+            try {
+                await fetch(`/api/training/videos/${videoId}`, { method: 'DELETE' });
+                await loadTrainingLibrary();
+            } catch (e) { alert('Failed to delete video.'); }
+        }
+
+        // --- View Toggle ---
+        function toggleTrainingView(view) {
+            document.getElementById('trainingLibraryView').style.display = view === 'library' ? 'block' : 'none';
+            document.getElementById('trainingLeaderboardView').style.display = view === 'leaderboard' ? 'block' : 'none';
+            document.getElementById('trainingManagerView').style.display = view === 'manager' ? 'block' : 'none';
+            document.getElementById('btnViewLibrary').style.background = view === 'library' ? 'var(--accent)' : '';
+            document.getElementById('btnViewLibrary').style.color = view === 'library' ? '#fff' : '';
+            document.getElementById('btnViewLeaderboard').style.background = view === 'leaderboard' ? 'var(--accent)' : '';
+            document.getElementById('btnViewLeaderboard').style.color = view === 'leaderboard' ? '#fff' : '';
+            document.getElementById('btnViewManager').style.background = view === 'manager' ? 'var(--accent)' : '';
+            document.getElementById('btnViewManager').style.color = view === 'manager' ? '#fff' : '';
+            if (view === 'leaderboard') loadLeaderboard();
+            if (view === 'manager') loadManagerDashboard();
+        }
+
+        // --- Leaderboard ---
+        async function loadLeaderboard() {
+            const el = document.getElementById('leaderboardContent');
+            try {
+                const data = await (await fetch('/api/training/leaderboard')).json();
+                if (!data.length) { el.innerHTML = '<p style="color:var(--muted)">No training activity yet.</p>'; return; }
+                let html = `<table style="width:100%;font-size:0.85rem">
+                    <thead><tr style="color:var(--muted);text-align:left">
+                        <th style="padding:8px 4px">Rank</th><th style="padding:8px 4px">Name</th>
+                        <th style="padding:8px 4px">Videos Watched</th><th style="padding:8px 4px">Quizzes</th>
+                        <th style="padding:8px 4px">Quiz Score</th>
+                    </tr></thead><tbody>`;
+                data.forEach((p, i) => {
+                    const medal = i === 0 ? ' &#129351;' : i === 1 ? ' &#129352;' : i === 2 ? ' &#129353;' : '';
+                    html += `<tr style="border-top:1px solid var(--border)">
+                        <td style="padding:8px 4px;font-weight:600">#${i + 1}${medal}</td>
+                        <td style="padding:8px 4px">${esc(p.name)}</td>
+                        <td style="padding:8px 4px">${p.videos_watched}</td>
+                        <td style="padding:8px 4px">${p.quizzes_taken}</td>
+                        <td style="padding:8px 4px">${p.total_quiz_score}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } catch (e) { el.innerHTML = '<p style="color:var(--red)">Failed to load leaderboard.</p>'; }
+        }
+
+        // --- Manager Dashboard ---
+        async function loadManagerDashboard() {
+            const el = document.getElementById('managerDashContent');
+            try {
+                const data = await (await fetch('/api/training/manager-dashboard')).json();
+                if (!data.team.length) { el.innerHTML = '<p style="color:var(--muted)">No team members found. Add people in the Branding tab first.</p>'; return; }
+
+                let html = `<div style="margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:8px">
+                    <span style="font-weight:600">${data.total_videos}</span> total training videos
+                </div>`;
+                html += `<div style="display:flex;flex-direction:column;gap:10px">`;
+                data.team.forEach(p => {
+                    const color = p.completion_pct >= 80 ? 'var(--green)' : p.completion_pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+                    html += `<div style="padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:16px">
+                        <div style="flex:1">
+                            <div style="font-weight:600">${esc(p.name)}</div>
+                            <div style="color:var(--muted);font-size:0.8rem">${p.videos_watched}/${data.total_videos} videos &middot; ${p.quizzes_completed} quizzes</div>
+                        </div>
+                        <div style="width:100px">
+                            <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                                <div style="height:100%;width:${p.completion_pct}%;background:${color};border-radius:3px"></div>
+                            </div>
+                            <div style="text-align:center;font-size:0.75rem;color:var(--muted);margin-top:2px">${p.completion_pct}%</div>
+                        </div>
+                    </div>`;
+                });
+                html += '</div>';
+                el.innerHTML = html;
+            } catch (e) { el.innerHTML = '<p style="color:var(--red)">Failed to load dashboard.</p>'; }
         }
     </script>
 </body>
