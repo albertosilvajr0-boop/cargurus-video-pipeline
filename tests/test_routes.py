@@ -25,6 +25,9 @@ from utils.database import init_db
 def client():
     """Flask test client with a fresh temporary database."""
     app.config["TESTING"] = True
+    # Disable rate limiting in tests
+    from app import limiter
+    limiter.enabled = False
     init_db()
     with app.test_client() as client:
         yield client
