@@ -575,6 +575,19 @@
                     </div>
                 </div>
 
+                <!-- Shirt Logo Upload (shared between modes) -->
+                <div class="form-section" style="margin-top:12px">
+                    <h3>Shirt Logo (optional)</h3>
+                    <p style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">Upload the logo you want the presenter to wear on their shirt. Without this, the AI generates a random logo.</p>
+                    <div style="display:flex;align-items:center;gap:16px">
+                        <div class="upload-zone" id="shirtLogoZone" style="padding:14px 16px;flex:0 0 200px">
+                            <p style="font-size:0.85rem;margin:0">Drop logo here or click</p>
+                            <input type="file" id="shirtLogoInput" accept="image/*">
+                        </div>
+                        <div id="shirtLogoPreview" style="display:flex;align-items:center;gap:8px"></div>
+                    </div>
+                </div>
+
                 <div style="display:flex;gap:0;margin:16px 0 0 0;background:var(--surface);border-radius:10px;border:1px solid var(--border);overflow:hidden;width:fit-content">
                     <button class="mode-toggle" id="modeUpload" onclick="setMode('upload')" style="padding:10px 24px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s">Upload Photos</button>
                     <button class="mode-toggle" id="modeVin" onclick="setMode('vin')" style="padding:10px 24px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:0.9rem;transition:all 0.2s">Paste VIN</button>
@@ -1418,16 +1431,18 @@
             const templateId = document.getElementById('videoTypeSelect').value;
             const vinPersonOption = document.getElementById('vinPersonSelect').value;
             const vinClientName = document.getElementById('vinClientName').value.trim();
-            const body = {
-                vin,
-                price,
-                dealer_phone: document.getElementById('vinPhone').value,
-                dealer_address: document.getElementById('vinAddress').value,
-                cta_text: document.getElementById('vinCTA').value,
-                prompt_template_id: templateId || null,
-                person_option: vinPersonOption,
-                client_name: vinClientName || null,
-            };
+
+            // Use FormData to support shirt logo file upload
+            const formData = new FormData();
+            formData.append('vin', vin);
+            if (price) formData.append('price', price);
+            formData.append('dealer_phone', document.getElementById('vinPhone').value);
+            formData.append('dealer_address', document.getElementById('vinAddress').value);
+            formData.append('cta_text', document.getElementById('vinCTA').value);
+            if (templateId) formData.append('prompt_template_id', templateId);
+            formData.append('person_option', vinPersonOption);
+            if (vinClientName) formData.append('client_name', vinClientName);
+            if (shirtLogoFile) formData.append('shirt_logo', shirtLogoFile);
 
             // Switch to progress view with VIN-specific steps
             document.getElementById('uploadForm').style.display = 'none';
@@ -1440,8 +1455,7 @@
             try {
                 const res = await fetch('/api/vin', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
+                    body: formData
                 });
                 const data = await res.json();
 
@@ -1462,6 +1476,7 @@
         let photoFiles = [];
         let stickerFile = null;
         let carfaxFile = null;
+        let shirtLogoFile = null;
 
         // Wire up drop zones
         setupDropZone('photoZone', 'photoInput', (files) => {
@@ -1482,6 +1497,17 @@
             carfaxFile = files[0] || null;
             renderSinglePreview('carfaxPreview', carfaxFile, 'Carfax');
             updateGenerateBtn();
+        });
+
+        setupDropZone('shirtLogoZone', 'shirtLogoInput', (files) => {
+            shirtLogoFile = files[0] || null;
+            const preview = document.getElementById('shirtLogoPreview');
+            if (shirtLogoFile) {
+                const url = URL.createObjectURL(shirtLogoFile);
+                preview.innerHTML = `<img src="${url}" style="height:60px;border-radius:6px;border:1px solid var(--border)"> <span style="font-size:0.8rem;color:var(--green)">${shirtLogoFile.name}</span> <button class="btn" style="padding:2px 8px;font-size:0.7rem" onclick="shirtLogoFile=null;document.getElementById('shirtLogoPreview').innerHTML='';document.getElementById('shirtLogoInput').value=''">Remove</button>`;
+            } else {
+                preview.innerHTML = '';
+            }
         });
 
         function setupDropZone(zoneId, inputId, onFiles) {
@@ -1565,6 +1591,9 @@
             // Add client name
             const clientName = document.getElementById('uploadClientName').value.trim();
             if (clientName) formData.append('client_name', clientName);
+
+            // Add shirt logo
+            if (shirtLogoFile) formData.append('shirt_logo', shirtLogoFile);
 
             // Add overrides
             const phone = document.getElementById('overridePhone').value;
@@ -2473,6 +2502,19 @@
             }
 
             const mediaClientName = document.getElementById('mediaClientName').value.trim();
+
+            // Upload shirt logo first if present, then include path in body
+            let mediaShirtLogoPath = null;
+            if (shirtLogoFile) {
+                const logoForm = new FormData();
+                logoForm.append('shirt_logo', shirtLogoFile);
+                try {
+                    const logoRes = await fetch('/api/upload-shirt-logo', { method: 'POST', body: logoForm });
+                    const logoData = await logoRes.json();
+                    if (logoRes.ok) mediaShirtLogoPath = logoData.path;
+                } catch (e) { console.warn('Shirt logo upload failed:', e); }
+            }
+
             const body = {
                 media_ids: Array.from(selectedMediaIds),
                 dealer_phone: document.getElementById('mediaPhone').value,
@@ -2480,6 +2522,7 @@
                 cta_text: document.getElementById('mediaCtaText').value,
                 person_option: document.getElementById('mediaPersonSelect').value,
                 client_name: mediaClientName || null,
+                shirt_logo_path: mediaShirtLogoPath,
             };
             const templateId = document.getElementById('mediaVideoType').value;
             if (templateId) body.prompt_template_id = templateId;

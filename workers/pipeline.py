@@ -230,39 +230,140 @@ class Pipeline:
         """Mark vehicle as error in the database."""
         update_vehicle_status(vehicle_id, "error", error_message=error_message)
 
+    # --- Step: Add TTS greeting audio ---
 
-def _inject_client_greeting(result: dict, client_name: str | None, person_name: str | None) -> dict:
+    def add_greeting_audio(
+        self,
+        final_path: str,
+        client_name: str,
+        person_name: str | None,
+        output_name: str,
+    ) -> str:
+        """Generate a TTS greeting and mix it into the video audio track.
+
+        Returns the path to the video with greeting audio (same as final_path
+        if mixing succeeds, or unchanged final_path on failure).
+        """
+        from utils.tts import generate_greeting_audio, mix_greeting_audio
+
+        self.update_job(progress="Adding personalized greeting audio...")
+        audio_dir = settings.VIDEOS_DIR
+        greeting_path = generate_greeting_audio(client_name, person_name, audio_dir)
+        if not greeting_path:
+            logger.warning("TTS greeting generation failed — video will have no greeting audio")
+            return final_path
+
+        greeted_path = str(settings.VIDEOS_DIR / f"{output_name}_greeted.mp4")
+        result = mix_greeting_audio(final_path, greeting_path, greeted_path)
+
+        # Clean up the greeting audio file
+        Path(greeting_path).unlink(missing_ok=True)
+
+        if result and Path(greeted_path).exists():
+            # Replace the final video with the greeted version
+            Path(final_path).unlink(missing_ok=True)
+            Path(greeted_path).rename(final_path)
+            logger.info("Greeting audio added to video: %s", Path(final_path).name)
+            return final_path
+        else:
+            logger.warning("Audio mixing failed — video will have no greeting audio")
+            return final_path
+
+    # --- Step: Prepare reference photo with shirt logo ---
+
+    def prepare_reference_with_logo(
+        self,
+        person_photo_path: str | None,
+        shirt_logo_path: str | None,
+        output_name: str,
+    ) -> str | None:
+        """Composite the shirt logo onto the person's reference photo.
+
+        Returns the modified reference photo path, or the original if compositing
+        fails or no inputs are provided.
+        """
+        if not person_photo_path or not shirt_logo_path:
+            return person_photo_path
+        if not Path(person_photo_path).exists() or not Path(shirt_logo_path).exists():
+            return person_photo_path
+
+        try:
+            from PIL import Image
+
+            person_img = Image.open(person_photo_path).convert("RGBA")
+            logo_img = Image.open(shirt_logo_path).convert("RGBA")
+
+            pw, ph = person_img.size
+
+            # Resize logo to ~15% of the image width
+            logo_w = int(pw * 0.15)
+            logo_h = int(logo_w * logo_img.height / logo_img.width)
+            logo_img = logo_img.resize((logo_w, logo_h), Image.LANCZOS)
+
+            # Position on upper-center chest area (~35% from top, centered)
+            x = (pw - logo_w) // 2
+            y = int(ph * 0.28)
+
+            person_img.paste(logo_img, (x, y), logo_img)
+
+            output_path = str(settings.VIDEOS_DIR / f"{output_name}_ref_with_logo.png")
+            person_img.convert("RGB").save(output_path, "PNG")
+            logger.info("Shirt logo composited onto reference photo: %s", output_path)
+            return output_path
+        except Exception as e:
+            logger.warning("Failed to composite shirt logo: %s — using original reference", e)
+            return person_photo_path
+
+
+def _inject_client_greeting(
+    result: dict,
+    client_name: str | None,
+    person_name: str | None,
+    has_shirt_logo: bool = False,
+) -> dict:
     """Programmatically inject a personalized client greeting into the script.
 
     Ensures the greeting always appears regardless of what Gemini generated.
     Modifies the result dict in-place and returns it.
     """
-    if not client_name:
-        return result
-
     script = result.get("script")
     if not script:
         return result
 
-    presenter = person_name or "your sales representative"
-    greeting = f"Hi {client_name}, I'm {presenter} with San Antonio Dodge."
-
-    # Prepend greeting to the hook (used as script text / caption intro)
-    current_hook = script.get("hook", "")
-    if greeting.lower() not in current_hook.lower():
-        script["hook"] = f"{greeting} {current_hook}"
-
-    # Prepend greeting scene to the veo_prompt so the AI video opens with it
     current_veo = script.get("veo_prompt", "")
-    greeting_scene = (
-        f'The video opens with {presenter} looking directly into the camera and saying: '
-        f'"{greeting}" The presenter smiles warmly, then the camera smoothly transitions to '
-        f"the vehicle. "
-    )
-    if client_name.lower() not in current_veo.lower():
-        script["veo_prompt"] = greeting_scene + current_veo
 
-    logger.info("Injected client greeting for '%s' (presenter: %s)", client_name, presenter)
+    # Inject client greeting if provided
+    if client_name:
+        presenter = person_name or "your sales representative"
+        greeting = f"Hi {client_name}, I'm {presenter} with San Antonio Dodge."
+
+        # Prepend greeting to the hook (used as script text / caption intro)
+        current_hook = script.get("hook", "")
+        if greeting.lower() not in current_hook.lower():
+            script["hook"] = f"{greeting} {current_hook}"
+
+        # Prepend greeting scene to the veo_prompt so the presenter faces the camera
+        greeting_scene = (
+            f'The video opens with {presenter} looking directly into the camera and saying: '
+            f'"{greeting}" The presenter smiles warmly, then the camera smoothly transitions to '
+            f"the vehicle. "
+        )
+        if client_name.lower() not in current_veo.lower():
+            current_veo = greeting_scene + current_veo
+            script["veo_prompt"] = current_veo
+
+        logger.info("Injected client greeting for '%s' (presenter: %s)", client_name, presenter)
+
+    # Inject shirt logo description if a logo was uploaded
+    if has_shirt_logo and "dealership logo" not in current_veo.lower():
+        logo_desc = (
+            "The presenter is wearing a polo shirt with the dealership logo "
+            "clearly and prominently displayed on the upper left chest. "
+            "The logo must be sharp, readable, and exactly match the reference image. "
+        )
+        script["veo_prompt"] = logo_desc + script.get("veo_prompt", "")
+        logger.info("Injected shirt logo description into veo_prompt")
+
     return result
 
 
@@ -279,6 +380,7 @@ def run_upload_pipeline(
     carfax_path: str | None = None,
     client_name: str | None = None,
     person_name: str | None = None,
+    shirt_logo_path: str | None = None,
     jobs_lock: threading.Lock = None,
     active_jobs: dict = None,
 ):
@@ -308,8 +410,8 @@ def run_upload_pipeline(
         if not result:
             return
 
-        # Inject personalized client greeting (guaranteed, not relying on Gemini)
-        _inject_client_greeting(result, client_name, person_name)
+        # Inject personalized client greeting + shirt logo description
+        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path))
 
         vehicle_info = result.get("vehicle", {})
         script_info = result.get("script", {})
@@ -347,22 +449,27 @@ def run_upload_pipeline(
         }
         vehicle_id = pipe.save_vehicle(vehicle_data)
 
-        # Step 3: Generate video
+        # Step 3: Prepare reference photo (composite shirt logo if provided)
+        best_idx = photo_analysis.get("best_exterior_index", 0)
+        hero_photo = photo_paths[best_idx] if best_idx < len(photo_paths) else (photo_paths[0] if photo_paths else None)
+        reference_photo = person_photo_path if person_photo_path else hero_photo
+        if shirt_logo_path and person_photo_path:
+            reference_photo = pipe.prepare_reference_with_logo(
+                person_photo_path, shirt_logo_path, upload_id
+            )
+
+        # Step 4: Generate video
         veo_prompt = script_info.get("veo_prompt", "")
         if not veo_prompt:
             pipe.update_job(status="error", progress="No video prompt generated")
             return
 
-        best_idx = photo_analysis.get("best_exterior_index", 0)
-        hero_photo = photo_paths[best_idx] if best_idx < len(photo_paths) else (photo_paths[0] if photo_paths else None)
-        reference_photo = person_photo_path if person_photo_path else hero_photo
-
         clip_path = pipe.generate_video(veo_prompt, reference_photo, upload_id)
         if not clip_path:
-            pipe.fail_vehicle(vehicle_id, f"Sora failed")
+            pipe.fail_vehicle(vehicle_id, "Sora failed")
             return
 
-        # Step 4: Overlay
+        # Step 5: Overlay
         final_path = pipe.apply_overlay(
             clip_path, hero_photo, vehicle_name,
             price=vehicle_info.get("price"),
@@ -373,7 +480,11 @@ def run_upload_pipeline(
             pipe.fail_vehicle(vehicle_id, "Overlay compositing failed")
             return
 
-        # Step 5: Upload + costs
+        # Step 5b: Add TTS greeting audio if client name provided
+        if client_name:
+            final_path = pipe.add_greeting_audio(final_path, client_name, person_name, upload_id)
+
+        # Step 6: Upload + costs
         video_url = pipe.upload_to_gcs(final_path, clip_path)
         pipe.record_costs(vehicle_id, final_path, video_url)
         pipe.complete(final_path, video_url, caption=script_info.get("caption", ""))
@@ -393,6 +504,7 @@ def run_vin_pipeline(
     person_photo_path: str | None = None,
     client_name: str | None = None,
     person_name: str | None = None,
+    shirt_logo_path: str | None = None,
     jobs_lock: threading.Lock = None,
     active_jobs: dict = None,
 ):
@@ -422,8 +534,8 @@ def run_vin_pipeline(
         if not result:
             return
 
-        # Inject personalized client greeting (guaranteed, not relying on Gemini)
-        _inject_client_greeting(result, client_name, person_name)
+        # Inject personalized client greeting + shirt logo description
+        _inject_client_greeting(result, client_name, person_name, has_shirt_logo=bool(shirt_logo_path))
 
         script_info = result.get("script", {})
         upload_id = f"vin_{vin}"
@@ -448,13 +560,20 @@ def run_vin_pipeline(
         }
         vehicle_id = pipe.save_vehicle(vehicle_data)
 
+        # Step 3b: Prepare reference photo with shirt logo if provided
+        reference_photo = person_photo_path
+        if shirt_logo_path and person_photo_path:
+            reference_photo = pipe.prepare_reference_with_logo(
+                person_photo_path, shirt_logo_path, upload_id
+            )
+
         # Step 4: Generate video
         veo_prompt = script_info.get("veo_prompt", "")
         if not veo_prompt:
             pipe.update_job(status="error", progress="No video prompt generated")
             return
 
-        clip_path = pipe.generate_video(veo_prompt, person_photo_path, upload_id)
+        clip_path = pipe.generate_video(veo_prompt, reference_photo, upload_id)
         if not clip_path:
             pipe.fail_vehicle(vehicle_id, "Sora failed")
             return
@@ -470,6 +589,10 @@ def run_vin_pipeline(
         if not final_path:
             pipe.fail_vehicle(vehicle_id, "Overlay compositing failed")
             return
+
+        # Step 5b: Add TTS greeting audio if client name provided
+        if client_name:
+            final_path = pipe.add_greeting_audio(final_path, client_name, person_name, upload_id)
 
         # Step 6: Upload + costs
         video_url = pipe.upload_to_gcs(final_path, clip_path)
