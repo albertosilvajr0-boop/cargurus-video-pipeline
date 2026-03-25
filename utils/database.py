@@ -292,6 +292,81 @@ def get_all_vehicles() -> list:
     return rows
 
 
+def get_vehicles_paginated(
+    page: int = 1,
+    per_page: int = 25,
+    status: str | None = None,
+    search: str | None = None,
+    sort_by: str = "id",
+    sort_dir: str = "desc",
+) -> dict:
+    """Get vehicles with pagination, filtering, and search.
+
+    Returns:
+        {
+            "vehicles": [...],
+            "total": int,
+            "page": int,
+            "per_page": int,
+            "total_pages": int,
+        }
+    """
+    conn = get_connection()
+
+    # Build WHERE clause
+    conditions = []
+    params = []
+
+    if status:
+        conditions.append("v.status = ?")
+        params.append(status)
+
+    if search:
+        search_term = f"%{search}%"
+        conditions.append(
+            "(v.year LIKE ? OR v.make LIKE ? OR v.model LIKE ? OR v.trim LIKE ? "
+            "OR v.vin LIKE ? OR v.cargurus_id LIKE ?)"
+        )
+        params.extend([search_term] * 6)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # Validate sort column
+    allowed_sort = {"id", "year", "make", "model", "price", "status", "video_generated_at", "updated_at"}
+    if sort_by not in allowed_sort:
+        sort_by = "id"
+    sort_direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+
+    # Count total
+    count_sql = f"SELECT COUNT(*) as total FROM vehicles v {where_clause}"
+    cursor = conn.execute(count_sql, params)
+    total = cursor.fetchone()["total"]
+
+    # Fetch page
+    offset = (page - 1) * per_page
+    data_sql = f"""
+        SELECT v.*, pt.display_name AS prompt_template_name
+        FROM vehicles v
+        LEFT JOIN prompt_templates pt ON v.prompt_template_id = pt.id
+        {where_clause}
+        ORDER BY v.{sort_by} {sort_direction}
+        LIMIT ? OFFSET ?
+    """
+    cursor = conn.execute(data_sql, params + [per_page, offset])
+    vehicles = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    total_pages = (total + per_page - 1) // per_page if per_page > 0 else 1
+
+    return {
+        "vehicles": vehicles,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+    }
+
+
 def get_pipeline_stats() -> dict:
     """Get summary statistics of the pipeline."""
     conn = get_connection()

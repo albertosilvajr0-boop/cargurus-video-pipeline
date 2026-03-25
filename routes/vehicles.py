@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from config import settings
 from utils.database import (
     get_all_vehicles, get_vehicles_by_status, get_pipeline_stats,
+    get_vehicles_paginated,
     delete_vehicle, retry_failed_vehicles, retry_vehicle_by_id,
     get_cost_analytics,
     save_branding_settings, get_branding_settings,
@@ -157,6 +158,35 @@ def api_stats():
 
 @vehicles_bp.route("/api/vehicles")
 def api_vehicles():
+    """List vehicles with optional pagination, search, and filtering.
+
+    Query params:
+        page (int): Page number (default: all — no pagination for backward compat)
+        per_page (int): Items per page (default: 25, max: 100)
+        status (str): Filter by status
+        search (str): Search by year, make, model, trim, VIN
+        sort_by (str): Sort column (id, year, make, model, price, status, updated_at)
+        sort_dir (str): Sort direction (asc, desc)
+    """
+    # If page param is present, use paginated endpoint
+    page = request.args.get("page")
+    if page is not None:
+        try:
+            page = max(1, int(page))
+        except ValueError:
+            page = 1
+        per_page = min(100, max(1, int(request.args.get("per_page", 25))))
+        result = get_vehicles_paginated(
+            page=page,
+            per_page=per_page,
+            status=request.args.get("status"),
+            search=request.args.get("search"),
+            sort_by=request.args.get("sort_by", "id"),
+            sort_dir=request.args.get("sort_dir", "desc"),
+        )
+        return jsonify(result)
+
+    # Legacy: return all vehicles (no pagination)
     status_filter = request.args.get("status")
     if status_filter:
         vehicles = get_vehicles_by_status(status_filter)

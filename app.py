@@ -147,6 +147,7 @@ from routes.upload import upload_bp, init_routes as init_upload_routes
 from routes.vehicles import vehicles_bp, init_routes as init_vehicle_routes
 from routes.media import media_bp
 from routes.events import events_bp
+from routes.batch import batch_bp
 
 init_upload_routes(_jobs_lock, _active_jobs)
 init_vehicle_routes(_jobs_lock, _active_jobs)
@@ -155,6 +156,7 @@ app.register_blueprint(upload_bp)
 app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
 app.register_blueprint(events_bp)
+app.register_blueprint(batch_bp)
 
 # --- Auth routes ---
 from utils.auth import register_auth_routes
@@ -215,6 +217,11 @@ def serve_photo(filename):
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     return send_from_directory(str(settings.UPLOADS_DIR), filename)
+
+
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(str(settings.PROJECT_ROOT / "public"), filename)
 
 
 # --- Diagnostics ---
