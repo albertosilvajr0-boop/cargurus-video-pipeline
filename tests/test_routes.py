@@ -10,20 +10,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Override DB_PATH and disable Firestore before any database/app import
-import os
+# Override DB_PATH before any database import
 import tempfile
 _test_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 
-# Set TESTING env before app import so rate limiter is disabled
-os.environ["TESTING"] = "true"
-
 import config.settings as settings
 settings.DB_PATH = Path(_test_db.name)
-
-# Disable Firestore connection attempts during test app initialization
-import utils.data_persistence as _dp
-_dp._firestore_available = False
 
 from app import app
 from utils.database import init_db

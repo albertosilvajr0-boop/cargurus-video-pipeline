@@ -6,9 +6,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-# Ensure testing mode is set before any app imports
-os.environ["TESTING"] = "true"
-
 import pytest
 
 
