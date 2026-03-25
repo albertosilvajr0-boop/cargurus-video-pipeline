@@ -131,6 +131,66 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
         );
+
+        -- Social sharing events
+        CREATE TABLE IF NOT EXISTS share_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id INTEGER NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'direct',
+            share_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- Video view analytics
+        CREATE TABLE IF NOT EXISTS video_analytics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id INTEGER NOT NULL,
+            view_count INTEGER DEFAULT 1,
+            source TEXT DEFAULT 'direct',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- A/B test definitions
+        CREATE TABLE IF NOT EXISTS ab_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id TEXT UNIQUE NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending',
+            winner TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- A/B test variants
+        CREATE TABLE IF NOT EXISTS ab_test_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id TEXT NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            variant_label TEXT NOT NULL,
+            prompt_template_id INTEGER,
+            video_path TEXT,
+            video_url TEXT,
+            views INTEGER DEFAULT 0,
+            shares INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES ab_tests(test_id),
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+        );
+
+        -- DMS/CRM inventory queue
+        CREATE TABLE IF NOT EXISTS inventory_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vin TEXT NOT NULL,
+            vehicle_data TEXT,
+            source TEXT DEFAULT 'webhook',
+            event TEXT DEFAULT 'inventory.new',
+            status TEXT DEFAULT 'pending',
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP
+        );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
     try:

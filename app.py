@@ -148,6 +148,9 @@ from routes.vehicles import vehicles_bp, init_routes as init_vehicle_routes
 from routes.media import media_bp
 from routes.events import events_bp
 from routes.batch import batch_bp
+from routes.social import social_bp
+from routes.analytics import analytics_bp
+from routes.integrations import integrations_bp
 
 init_upload_routes(_jobs_lock, _active_jobs)
 init_vehicle_routes(_jobs_lock, _active_jobs)
@@ -157,6 +160,9 @@ app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(batch_bp)
+app.register_blueprint(social_bp)
+app.register_blueprint(analytics_bp)
+app.register_blueprint(integrations_bp)
 
 # --- Auth routes ---
 from utils.auth import register_auth_routes
