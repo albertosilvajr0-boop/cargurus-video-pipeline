@@ -32,8 +32,8 @@ class TestCostTracker:
     def test_can_afford_exceeds_budget(self):
         tracker = CostTracker()
         with patch("config.settings.COST_LIMIT", 1.0):
-            tracker.session_cost = 0.5
-            # Veo fast at $0.15/sec * 16 sec = $2.40 per video
+            tracker.session_cost = 0.9
+            # Veo fast is $0.50 per video, only $0.10 remaining
             assert tracker.can_afford("veo", "fast") is False
 
     def test_get_best_engine_primary(self):
