@@ -135,14 +135,18 @@ if is_gcs_enabled():
     if _restored_people:
         logger.info("Restored %d people photo files from GCS", _restored_people)
 
-# --- Shared job tracking ---
-_jobs_lock = threading.Lock()
-_active_jobs = {}
+# --- Shared job tracking (Firestore-backed, survives restarts) ---
+from utils.job_store import get_job_store
+_job_store = get_job_store()
+# Legacy compatibility: keep _jobs_lock and _active_jobs for existing code
+_jobs_lock = _job_store.lock
+_active_jobs = _job_store._jobs
 
 # --- Register route blueprints ---
 from routes.upload import upload_bp, init_routes as init_upload_routes
 from routes.vehicles import vehicles_bp, init_routes as init_vehicle_routes
 from routes.media import media_bp
+from routes.events import events_bp
 
 init_upload_routes(_jobs_lock, _active_jobs)
 init_vehicle_routes(_jobs_lock, _active_jobs)
@@ -150,13 +154,11 @@ init_vehicle_routes(_jobs_lock, _active_jobs)
 app.register_blueprint(upload_bp)
 app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
+app.register_blueprint(events_bp)
 
-
-# --- Rate limit decorators for upload-heavy endpoints ---
-@app.before_request
-def _rate_limit_uploads():
-    """Apply stricter rate limits on upload/generation endpoints."""
-    pass  # flask-limiter handles this via decorators on blueprints
+# --- Auth routes ---
+from utils.auth import register_auth_routes
+register_auth_routes(app)
 
 
 # --- Error handlers ---

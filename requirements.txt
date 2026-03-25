@@ -29,3 +29,6 @@ ruff==0.9.10
 # Security
 flask-limiter==3.12
 flask-wtf==1.2.2
+
+# Authentication (optional — enable via AUTH_ENABLED=true)
+firebase-admin==6.6.0
