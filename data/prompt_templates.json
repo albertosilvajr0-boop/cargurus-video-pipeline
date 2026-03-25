@@ -1,10 +1,1 @@
-[
-  {
-    "id": 1,
-    "display_name": "Showroom Video",
-    "prompt_text": "You are generating a standardized, high-fidelity Sora/Veo prompt for a professional vehicle walkaround.\nYou must integrate a professional presenter and place the vehicle in a controlled, ultra-premium showroom.\nPrecision of text and consistency of the environment are the highest priorities.\n\n## Data Extraction Protocol\nFrom the vehicle info provided, extract:\n- Vehicle Identity: [Year] [Make] [Model] [Trim]\n- Visual Specs: Paint name, interior color, wheel type\n- Trust Data: Carfax status (e.g., \"1-Owner\", \"Clean Carfax\") and MSRP\n- Safety Feature: Select 1 safety feature (e.g., Blind Spot Monitoring, Forward Collision Warning)\n- Tech Feature: Select 1 technology feature (e.g., Wireless Apple CarPlay, Head-Up Display)\n\n## The \"Zero Variation\" Production Manifest\nGenerate the veo_prompt using this structure:\n\n[VEHICLE NAME] - Professional Walkaround\n\nSubject: A pristine [EXTERIOR COLOR] [YEAR] [MAKE] [MODEL]. The presenter is a professional salesperson wearing a navy blazer and grey chinos.\n\nEnvironment: A minimalist, high-end automotive studio. The floor is dark obsidian-polished tile. The background is a solid, neutral-toned architectural wall \u2014 no windows, no cityscape. Lighting is provided by overhead linear \"ribbon\" soft-boxes that create perfectly straight, crisp reflections on the car's paint. The vehicle glass is 100% clean with no stickers or decals.\n\nMotion Sequence:\n0-15s: Wide hero shot of the presenter and the car in the dark studio.\n15-45s: Close-up pans of [SAFETY FEATURE] and [TECH FEATURE]. The presenter gestures toward them with calm, professional movements.\n45-60s: Camera pulls back to center the presenter.\n\nText & Contact Integration:\nDuring the final 10 seconds, a digitally clear, bold white graphic appears at the bottom center of the frame.\nThe text MUST read exactly: \"Call {dealer_phone}\".\nThe characters must be static, legible, and maintain a consistent sans-serif font. No flickering or morphing of the numbers.\n\nCinematography: 8K, Arri Alexa, 35mm f/2.8 lens. High contrast between the car and the dark background. Focus is locked on the presenter and the vehicle.",
-    "is_default": 1,
-    "created_at": "2026-03-25 01:51:56",
-    "updated_at": "2026-03-25 01:51:56"
-  }
-]
+[]

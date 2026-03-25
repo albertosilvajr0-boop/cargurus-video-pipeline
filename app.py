@@ -115,7 +115,6 @@ _active_jobs = {}
 from routes.upload import upload_bp, init_routes as init_upload_routes
 from routes.vehicles import vehicles_bp, init_routes as init_vehicle_routes
 from routes.media import media_bp
-from routes.training import training_bp
 
 init_upload_routes(_jobs_lock, _active_jobs)
 init_vehicle_routes(_jobs_lock, _active_jobs)
@@ -123,7 +122,6 @@ init_vehicle_routes(_jobs_lock, _active_jobs)
 app.register_blueprint(upload_bp)
 app.register_blueprint(vehicles_bp)
 app.register_blueprint(media_bp)
-app.register_blueprint(training_bp)
 
 
 # --- Pages ---
