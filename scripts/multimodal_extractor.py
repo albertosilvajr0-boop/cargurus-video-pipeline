@@ -195,7 +195,10 @@ class MultimodalExtractor:
         prompt_text = EXTRACTION_PROMPT.format(dealer_name=settings.DEALER_NAME)
 
         # Append personalized client greeting if client_name is provided
-        if client_name:
+        # BUT only if no template is being used — templates with {client_name}
+        # handle the greeting in their own shot list and dialogue timing.
+        has_template = prompt_template and prompt_template.get("prompt_text")
+        if client_name and not has_template:
             presenter = person_name or "your sales representative"
             prompt_text += (
                 "\n\n## IMPORTANT: Personalized Client Greeting\n"
@@ -208,8 +211,14 @@ class MultimodalExtractor:
             )
 
         # Append video style template if provided
-        if prompt_template and prompt_template.get("prompt_text"):
-            template_text = prompt_template["prompt_text"].replace("{dealer_phone}", settings.DEALER_PHONE or "")
+        if has_template:
+            template_text = prompt_template["prompt_text"]
+            # Substitute template variables
+            template_text = template_text.replace("{dealer_phone}", settings.DEALER_PHONE or "")
+            if client_name:
+                template_text = template_text.replace("{client_name}", client_name)
+            if person_name:
+                template_text = template_text.replace("{salesperson_name}", person_name)
             prompt_text += (
                 "\n\n## Video Style Template\n"
                 "IMPORTANT: Override the default veo_prompt style with the following production template. "
