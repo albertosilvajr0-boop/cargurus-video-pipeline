@@ -131,6 +131,69 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS training_sections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS training_videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            duration TEXT NOT NULL DEFAULT '',
+            difficulty TEXT NOT NULL DEFAULT 'beginner',
+            sort_order INTEGER DEFAULT 0,
+            quiz_json TEXT NOT NULL DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (section_id) REFERENCES training_sections(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS training_watch_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL,
+            video_id INTEGER NOT NULL,
+            watched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+            FOREIGN KEY (video_id) REFERENCES training_videos(id) ON DELETE CASCADE,
+            UNIQUE(person_id, video_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL,
+            video_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+            FOREIGN KEY (video_id) REFERENCES training_videos(id) ON DELETE CASCADE,
+            UNIQUE(person_id, video_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL,
+            video_id INTEGER NOT NULL,
+            note_text TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+            FOREIGN KEY (video_id) REFERENCES training_videos(id) ON DELETE CASCADE,
+            UNIQUE(person_id, video_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_quiz_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL,
+            video_id INTEGER NOT NULL,
+            score INTEGER NOT NULL,
+            total INTEGER NOT NULL,
+            completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+            FOREIGN KEY (video_id) REFERENCES training_videos(id) ON DELETE CASCADE
+        );
     """)
     # Migrate: add prompt_template_id column if missing (existing databases)
     try:
@@ -861,3 +924,252 @@ def _auto_export_people():
     except Exception as e:
         import logging
         logging.getLogger("database").warning("Auto-export people failed: %s", e)
+
+
+### Training Library CRUD ###
+
+def get_all_training_sections() -> list:
+    """Get all training sections with their videos."""
+    conn = get_connection()
+    sections = [dict(r) for r in conn.execute(
+        "SELECT * FROM training_sections ORDER BY sort_order, id"
+    ).fetchall()]
+    for sec in sections:
+        sec["videos"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM training_videos WHERE section_id = ? ORDER BY sort_order, id",
+            (sec["id"],),
+        ).fetchall()]
+    conn.close()
+    return sections
+
+
+def create_training_section(title: str, sort_order: int = 0) -> int:
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO training_sections (title, sort_order) VALUES (?, ?)",
+        (title, sort_order),
+    )
+    sid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return sid
+
+
+def update_training_section(section_id: int, title: str) -> bool:
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE training_sections SET title = ? WHERE id = ?", (title, section_id)
+    )
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def delete_training_section(section_id: int) -> bool:
+    conn = get_connection()
+    conn.execute("DELETE FROM training_videos WHERE section_id = ?", (section_id,))
+    cursor = conn.execute("DELETE FROM training_sections WHERE id = ?", (section_id,))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def create_training_video(section_id: int, title: str, url: str,
+                          description: str = "", duration: str = "",
+                          difficulty: str = "beginner", sort_order: int = 0,
+                          quiz_json: str = "[]") -> int:
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO training_videos (section_id, title, url, description, duration, "
+        "difficulty, sort_order, quiz_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (section_id, title, url, description, duration, difficulty, sort_order, quiz_json),
+    )
+    vid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return vid
+
+
+def update_training_video(video_id: int, **kwargs) -> bool:
+    allowed = {"title", "url", "description", "duration", "difficulty",
+               "sort_order", "quiz_json", "section_id"}
+    fields, values = [], []
+    for k, v in kwargs.items():
+        if k in allowed:
+            fields.append(f"{k} = ?")
+            values.append(v)
+    if not fields:
+        return False
+    values.append(video_id)
+    conn = get_connection()
+    cursor = conn.execute(
+        f"UPDATE training_videos SET {', '.join(fields)} WHERE id = ?", values
+    )
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def delete_training_video(video_id: int) -> bool:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM training_videos WHERE id = ?", (video_id,))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def toggle_watch(person_id: int, video_id: int) -> bool:
+    """Toggle watch status. Returns True if now watched, False if unwatched."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT id FROM training_watch_history WHERE person_id = ? AND video_id = ?",
+        (person_id, video_id),
+    ).fetchone()
+    if existing:
+        conn.execute("DELETE FROM training_watch_history WHERE id = ?", (existing["id"],))
+        watched = False
+    else:
+        conn.execute(
+            "INSERT INTO training_watch_history (person_id, video_id) VALUES (?, ?)",
+            (person_id, video_id),
+        )
+        watched = True
+    conn.commit()
+    conn.close()
+    return watched
+
+
+def get_watched_videos(person_id: int) -> list[int]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT video_id FROM training_watch_history WHERE person_id = ?",
+        (person_id,),
+    ).fetchall()
+    conn.close()
+    return [r["video_id"] for r in rows]
+
+
+def toggle_favorite(person_id: int, video_id: int) -> bool:
+    """Toggle favorite. Returns True if now favorited, False if unfavorited."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT id FROM training_favorites WHERE person_id = ? AND video_id = ?",
+        (person_id, video_id),
+    ).fetchone()
+    if existing:
+        conn.execute("DELETE FROM training_favorites WHERE id = ?", (existing["id"],))
+        fav = False
+    else:
+        conn.execute(
+            "INSERT INTO training_favorites (person_id, video_id) VALUES (?, ?)",
+            (person_id, video_id),
+        )
+        fav = True
+    conn.commit()
+    conn.close()
+    return fav
+
+
+def get_favorite_videos(person_id: int) -> list[int]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT video_id FROM training_favorites WHERE person_id = ?",
+        (person_id,),
+    ).fetchall()
+    conn.close()
+    return [r["video_id"] for r in rows]
+
+
+def save_training_note(person_id: int, video_id: int, note_text: str):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO training_notes (person_id, video_id, note_text, updated_at) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(person_id, video_id) DO UPDATE SET "
+        "note_text = excluded.note_text, updated_at = excluded.updated_at",
+        (person_id, video_id, note_text, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_training_notes(person_id: int) -> dict:
+    """Returns {video_id: note_text}."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT video_id, note_text FROM training_notes WHERE person_id = ?",
+        (person_id,),
+    ).fetchall()
+    conn.close()
+    return {r["video_id"]: r["note_text"] for r in rows}
+
+
+def save_quiz_result(person_id: int, video_id: int, score: int, total: int):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO training_quiz_results (person_id, video_id, score, total) "
+        "VALUES (?, ?, ?, ?)",
+        (person_id, video_id, score, total),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_best_quiz_results(person_id: int) -> dict:
+    """Returns {video_id: {score, total}} best scores."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT video_id, MAX(score) as score, total FROM training_quiz_results "
+        "WHERE person_id = ? GROUP BY video_id",
+        (person_id,),
+    ).fetchall()
+    conn.close()
+    return {r["video_id"]: {"score": r["score"], "total": r["total"]} for r in rows}
+
+
+def get_training_leaderboard() -> list:
+    """Get leaderboard: people ranked by videos watched."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT p.id, p.name, "
+        "COUNT(DISTINCT wh.video_id) as videos_watched, "
+        "COUNT(DISTINCT qr.video_id) as quizzes_taken, "
+        "COALESCE(SUM(qr_best.best_score), 0) as total_quiz_score "
+        "FROM people p "
+        "LEFT JOIN training_watch_history wh ON p.id = wh.person_id "
+        "LEFT JOIN training_quiz_results qr ON p.id = qr.person_id "
+        "LEFT JOIN ("
+        "  SELECT person_id, video_id, MAX(score) as best_score "
+        "  FROM training_quiz_results GROUP BY person_id, video_id"
+        ") qr_best ON p.id = qr_best.person_id "
+        "GROUP BY p.id ORDER BY videos_watched DESC, total_quiz_score DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_manager_training_dashboard() -> dict:
+    """Get manager overview of all team training progress."""
+    conn = get_connection()
+    total_videos = conn.execute("SELECT COUNT(*) as c FROM training_videos").fetchone()["c"]
+    people = [dict(r) for r in conn.execute("SELECT id, name FROM people ORDER BY name").fetchall()]
+    team = []
+    for p in people:
+        watched = conn.execute(
+            "SELECT COUNT(*) as c FROM training_watch_history WHERE person_id = ?",
+            (p["id"],),
+        ).fetchone()["c"]
+        quizzes = conn.execute(
+            "SELECT COUNT(DISTINCT video_id) as c FROM training_quiz_results WHERE person_id = ?",
+            (p["id"],),
+        ).fetchone()["c"]
+        team.append({
+            "id": p["id"], "name": p["name"],
+            "videos_watched": watched, "quizzes_completed": quizzes,
+            "completion_pct": round(watched / total_videos * 100) if total_videos else 0,
+        })
+    conn.close()
+    return {"total_videos": total_videos, "team": team}
