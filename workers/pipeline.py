@@ -307,13 +307,14 @@ def _inject_client_greeting(
         # conflict with shot-list timing from templates.  This tells Sora to
         # incorporate the greeting into the first shot rather than adding a new one.
         greeting_directive = (
-            f'\n\nCLIENT GREETING REQUIREMENT: During the FIRST shot of this video, '
-            f'the presenter must look directly into the camera and audibly say: '
-            f'"{greeting}" '
-            f'This spoken greeting should happen naturally within the first shot\'s '
-            f'existing timing — do NOT add extra time or a separate shot for it. '
-            f'The presenter delivers the greeting while the first shot is already in progress, '
-            f'then continues with the rest of the script as described above.'
+            f'\n\nCLIENT GREETING REQUIREMENT: The presenter must look directly into '
+            f'the camera and audibly say: "{greeting}" '
+            f'This greeting should be spoken at the very beginning of the video. '
+            f'Adjust the timing of all other shots accordingly to make room for the '
+            f'greeting while ALWAYS ensuring the video ends properly with the final '
+            f'shot and closing call-to-action exactly as described in the shot list. '
+            f'Every shot in the sequence must still appear — compress or shift their '
+            f'start times as needed, but never cut the final shot or ending.'
         )
         if client_name.lower() not in current_veo.lower():
             current_veo = current_veo + greeting_directive
