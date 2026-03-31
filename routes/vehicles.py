@@ -18,6 +18,7 @@ from utils.database import (
     get_all_prompt_templates, get_prompt_template,
     create_prompt_template, update_prompt_template, delete_prompt_template,
     update_vehicle_status, get_connection,
+    archive_vehicle, unarchive_vehicle, get_archived_vehicles,
 )
 from utils.cloud_storage import (
     is_gcs_enabled, upload_branding_asset,
@@ -214,6 +215,25 @@ def api_delete_vehicle(vehicle_id):
     if not deleted:
         return jsonify({"error": "Vehicle not found"}), 404
     return jsonify({"status": "ok"})
+
+
+@vehicles_bp.route("/api/vehicle/<int:vehicle_id>/archive", methods=["POST"])
+def api_archive_vehicle(vehicle_id):
+    if archive_vehicle(vehicle_id):
+        return jsonify({"status": "archived"})
+    return jsonify({"error": "Vehicle not found"}), 404
+
+
+@vehicles_bp.route("/api/vehicle/<int:vehicle_id>/unarchive", methods=["POST"])
+def api_unarchive_vehicle(vehicle_id):
+    if unarchive_vehicle(vehicle_id):
+        return jsonify({"status": "unarchived"})
+    return jsonify({"error": "Vehicle not found"}), 404
+
+
+@vehicles_bp.route("/api/vehicles/archived")
+def api_archived_vehicles():
+    return jsonify(get_archived_vehicles())
 
 
 @vehicles_bp.route("/api/retry-all", methods=["POST"])

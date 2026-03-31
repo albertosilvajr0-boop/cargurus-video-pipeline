@@ -1060,6 +1060,7 @@
                                 {% if v.status == 'video_complete' %}
                                 <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail({{ v.id }}); setTimeout(()=>toggleReoverlayForm({{ v.id }}),300)">Re-overlay</button>
                                 {% endif %}
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:#6b7280;margin-left:4px" onclick="archiveVehicle({{ v.id }})">Archive</button>
                                 <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--red,#e74c3c);margin-left:4px" onclick="deleteVehicle({{ v.id }})">Delete</button>
                             </td>
                         </tr>
@@ -1073,6 +1074,23 @@
                 <p>Upload vehicle photos to create your first video.</p>
             </div>
             {% endif %}
+
+            <!-- Archived Videos Section -->
+            <div id="archivedSection" style="display:none;margin-top:32px">
+                <div class="archived-header" onclick="toggleArchivedSection()" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;user-select:none">
+                    <span id="archivedChevron" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem;color:var(--muted)">&#9654;</span>
+                    <span style="font-weight:600;font-size:0.95rem;color:var(--muted)">Archived Videos</span>
+                    <span id="archivedCount" style="font-size:0.8rem;color:var(--muted);background:var(--surface2);padding:2px 8px;border-radius:10px">0</span>
+                </div>
+                <div id="archivedBody" style="display:none;margin-top:8px">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Vehicle</th><th>VIN</th><th>Video Type</th><th>Price</th><th>Status</th><th>Cost</th><th></th></tr></thead>
+                            <tbody id="archivedTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ========== TAB: Costs ========== -->
@@ -1405,6 +1423,7 @@
                         const reoverlayBtn = v.status === 'video_complete'
                             ? `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--accent);margin-left:4px" onclick="showDetail(${v.id}); setTimeout(()=>toggleReoverlayForm(${v.id}),300)">Re-overlay</button>`
                             : '';
+                        const archiveBtn = `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:#6b7280;margin-left:4px" onclick="archiveVehicle(${v.id})">Archive</button>`;
                         const deleteBtn = `<button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--red,#e74c3c);margin-left:4px" onclick="deleteVehicle(${v.id})">Delete</button>`;
                         return `<tr>
                             <td><strong>${name}</strong>${trim}</td>
@@ -1413,7 +1432,7 @@
                             <td>${price}</td>
                             <td><span class="badge ${v.status}">${status}</span></td>
                             <td>${cost}</td>
-                            <td style="white-space:nowrap"><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>${reoverlayBtn}${deleteBtn}</td>
+                            <td style="white-space:nowrap"><button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>${reoverlayBtn}${archiveBtn}${deleteBtn}</td>
                         </tr>`;
                     }).join('');
 
@@ -1429,6 +1448,42 @@
                         </table>`;
                         container.appendChild(wrapper);
                     }
+                }
+
+                // Load archived vehicles
+                const archivedRes = await fetch('/api/vehicles/archived');
+                const archived = await archivedRes.json();
+                const archivedSection = document.getElementById('archivedSection');
+                const archivedCount = document.getElementById('archivedCount');
+                const archivedBody = document.getElementById('archivedTableBody');
+
+                if (archived.length > 0) {
+                    archivedSection.style.display = 'block';
+                    archivedCount.textContent = archived.length;
+                    archivedBody.innerHTML = archived.map(v => {
+                        const name = [v.year || '', v.make || '', v.model || ''].join(' ').trim();
+                        const trim = v.trim ? `<br><span style="color:var(--muted);font-size:0.8rem">${v.trim}</span>` : '';
+                        const vin = v.vin || '&mdash;';
+                        const videoType = v.prompt_template_name || 'Default';
+                        const price = v.price ? '$' + Number(v.price).toLocaleString() : '&mdash;';
+                        const status = (v.status || '').replace(/_/g, ' ');
+                        const cost = v.video_cost ? '$' + v.video_cost.toFixed(2) : '&mdash;';
+                        return `<tr style="opacity:0.7">
+                            <td><strong>${name}</strong>${trim}</td>
+                            <td style="font-family:monospace;font-size:0.8rem">${vin}</td>
+                            <td><span style="color:var(--cyan);font-size:0.8rem">${videoType}</span></td>
+                            <td>${price}</td>
+                            <td><span class="badge ${v.status}">${status}</span></td>
+                            <td>${cost}</td>
+                            <td style="white-space:nowrap">
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem" onclick="showDetail(${v.id})">View</button>
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--green);margin-left:4px" onclick="unarchiveVehicle(${v.id})">Restore</button>
+                                <button class="btn" style="padding:4px 12px;font-size:0.8rem;background:var(--red,#e74c3c);margin-left:4px" onclick="deleteVehicle(${v.id})">Delete</button>
+                            </td>
+                        </tr>`;
+                    }).join('');
+                } else {
+                    archivedSection.style.display = 'none';
                 }
             } catch (e) {
                 console.error('Failed to refresh videos tab:', e);
@@ -3015,6 +3070,34 @@
             } catch (e) {
                 alert('Failed to delete vehicle: ' + e.message);
             }
+        }
+
+        async function archiveVehicle(vehicleId) {
+            try {
+                const res = await fetch(`/api/vehicle/${vehicleId}/archive`, { method: 'POST' });
+                if (!res.ok) throw new Error('Archive failed');
+                refreshVideosTab();
+            } catch (e) {
+                alert('Failed to archive vehicle: ' + e.message);
+            }
+        }
+
+        async function unarchiveVehicle(vehicleId) {
+            try {
+                const res = await fetch(`/api/vehicle/${vehicleId}/unarchive`, { method: 'POST' });
+                if (!res.ok) throw new Error('Unarchive failed');
+                refreshVideosTab();
+            } catch (e) {
+                alert('Failed to restore vehicle: ' + e.message);
+            }
+        }
+
+        function toggleArchivedSection() {
+            const body = document.getElementById('archivedBody');
+            const chevron = document.getElementById('archivedChevron');
+            const isOpen = body.style.display !== 'none';
+            body.style.display = isOpen ? 'none' : 'block';
+            chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
         }
 
         // ==================== VEHICLE DETAIL MODAL ====================
