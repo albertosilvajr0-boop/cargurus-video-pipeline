@@ -809,8 +809,11 @@ class VideoOverlayPipeline:
                 f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:black,"
                 f"fps={self.fps}"
             ),
+            "-af", "loudnorm=I=-14:TP=-1:LRA=11",
             "-c:v", "libx264",
             "-c:a", "aac",
+            "-b:a", "192k",
+            "-ar", "48000",
             "-preset", "fast",
             "-crf", "23",
             output_path,
@@ -849,8 +852,11 @@ class VideoOverlayPipeline:
                 "fade=t=in:st=0:d=0.3,"
                 f"fade=t=out:st={settings.TARGET_VIDEO_DURATION - 0.3}:d=0.3"
             ),
+            "-af", f"loudnorm=I=-14:TP=-1:LRA=11,afade=t=in:st=0:d=0.3,afade=t=out:st={settings.TARGET_VIDEO_DURATION - 0.3}:d=0.3",
             "-c:v", "libx264",
             "-c:a", "aac",
+            "-b:a", "192k",
+            "-ar", "48000",
             "-preset", "fast",
             "-crf", "23",
             output_path,
