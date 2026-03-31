@@ -207,6 +207,11 @@ def init_db():
         conn.execute("SELECT carfax_path FROM vehicles LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE vehicles ADD COLUMN carfax_path TEXT")
+    # Migrate: add archived column if missing
+    try:
+        conn.execute("SELECT archived FROM vehicles LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN archived INTEGER DEFAULT 0")
     # Migrate: move people_photos.name into people table, add person_id
     try:
         conn.execute("SELECT person_id FROM people_photos LIMIT 1")
@@ -251,6 +256,7 @@ VEHICLES_ALLOWED_FIELDS = frozenset({
     "photo_paths", "sticker_path", "carfax_path", "video_script", "video_path",
     "video_url", "video_engine", "video_cost", "prompt_template_id",
     "scraped_at", "script_generated_at", "video_generated_at", "updated_at",
+    "archived",
 })
 
 
@@ -338,18 +344,65 @@ def get_vehicles_by_status(status: str) -> list:
     return rows
 
 
-def get_all_vehicles() -> list:
+def get_all_vehicles(include_archived: bool = False) -> list:
     """Get all vehicles with prompt template name."""
     conn = get_connection()
-    cursor = conn.execute("""
+    where = "" if include_archived else "WHERE COALESCE(v.archived, 0) = 0"
+    cursor = conn.execute(f"""
         SELECT v.*, pt.display_name AS prompt_template_name
         FROM vehicles v
         LEFT JOIN prompt_templates pt ON v.prompt_template_id = pt.id
+        {where}
         ORDER BY v.id
     """)
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
+
+
+def get_archived_vehicles() -> list:
+    """Get all archived vehicles with prompt template name."""
+    conn = get_connection()
+    cursor = conn.execute("""
+        SELECT v.*, pt.display_name AS prompt_template_name
+        FROM vehicles v
+        LEFT JOIN prompt_templates pt ON v.prompt_template_id = pt.id
+        WHERE v.archived = 1
+        ORDER BY v.updated_at DESC
+    """)
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def archive_vehicle(vehicle_id: int) -> bool:
+    """Archive a vehicle. Returns True if found and archived."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE vehicles SET archived = 1, updated_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), vehicle_id),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    if updated:
+        _auto_export_vehicles()
+    return updated
+
+
+def unarchive_vehicle(vehicle_id: int) -> bool:
+    """Unarchive a vehicle. Returns True if found and unarchived."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE vehicles SET archived = 0, updated_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), vehicle_id),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    if updated:
+        _auto_export_vehicles()
+    return updated
 
 
 def get_vehicles_paginated(
@@ -374,7 +427,7 @@ def get_vehicles_paginated(
     conn = get_connection()
 
     # Build WHERE clause
-    conditions = []
+    conditions = ["COALESCE(v.archived, 0) = 0"]
     params = []
 
     if status:
